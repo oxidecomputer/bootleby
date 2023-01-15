@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.66.1"
+targets = [ "thumbv8m.main-none-eabihf" ]
+profile = "minimal"
+components = [ "rustfmt" ]
