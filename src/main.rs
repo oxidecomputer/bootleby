@@ -34,19 +34,31 @@ fn main() -> ! {
 fn boot_into(image: &'static [u32; SLOT_SIZE_WORDS]) -> ! {
     //todo!("disable interrupts possibly enabled by ROM");
     //todo!("turn off peripherals");
-    // TODO these are not the correct way to load this information from the
-    // image!
-    let (reset, stack, vtor): (u32, u32, u32) = (image[0], image[1], image.as_ptr() as u32);
 
+    // The NXP image header is _also_ a Cortex-M vector table, stuffing things
+    // into reserved places. So we can derive the correct boot values for the
+    // SP, PC, and VTOR in the normal way:
+    // image!
+    let (stack, reset, vtor) = (image[0], image[1], image.as_ptr() as u32);
+
+    // And away we go!
     unsafe {
         core::arch::asm!(
             "
                 @ From the perspective of this program, we're never leaving
                 @ this asm block. This means we can trash Rust invariants.
 
-                @ Zero our memory. Note that this destroys our stack! We
-                @ can't refer to any stack-allocated anything from here
-                @ on.
+                @ Scribble our memory. Note that this destroys our stack! We
+                @ can't refer to any stack-allocated anything from here on.
+                movw r3, #:lower16:__start_of_ram
+                movt r3, #:upper16:__start_of_ram
+                movw r4, #:lower16:__end_of_ram
+                movt r4, #:upper16:__end_of_ram
+                movs r5, #0
+
+            1:  str r5, [r3], #4
+                cmp r3, r4
+                bne 1b
 
                 @ Move the vector table location to the image's table.
                 @ Note that this means we can't do anything that might
@@ -84,11 +96,24 @@ fn boot_into(image: &'static [u32; SLOT_SIZE_WORDS]) -> ! {
 
                 @ Jump into the image. We're using a simple BX here so that
                 @ we remain in secure mode.
+                @
+                @ We checked the reset vector as part of validation, so we
+                @ know this isn't going to result in an _immediate_ bus
+                @ fault or usage fault. The main remaining failure case is
+                @ if the first instruction in the image isn't valid. An
+                @ ARM disassembler seems out of scope for stage0, so this
+                @ failure can happen.
                 bx r0
             ",
+
+            // NOTE: because this asm block destroys RAM early on,
+            // every parameter fed in here must be a *value* in a
+            // register. If you find yourself passing an *address*
+            // things are going to get weird for you.
             in("r0") reset,
             in("r1") stack,
             in("r2") vtor,
+
             options(noreturn),
         )
     }
@@ -100,6 +125,50 @@ enum ImageChoice { A, B }
 fn verify_image(
     image: &'static [u32; SLOT_SIZE_WORDS],
 ) -> bool {
+    // Because of our past experience with the implementation quality of the
+    // ROM, let's do some basic checks before handing it a blob to inspect,
+    // shall we?
+    {
+        // TODO: when we begin requiring secure stage1, we do it here.
+        let image_type = image[4];
+        match image_type {
+            1 | 4 | 0x8001 => {
+                // Validate that the secondary header offset is in bounds.
+                // TODO: we can do better than this:
+                let header_offset = image[5];
+                if header_offset >= SLOT_SIZE_WORDS as u32 {
+                    return false;
+                }
+            }
+            2 | 5 => {
+                // CRC checksum... we can probably trust the ROM to compute
+                // this?
+            }
+            0 => {
+                // No secondary header.
+            }
+            _ => {
+                // Bogus image type.
+                return false;
+            }
+        }
+        // TODO do we need to check the execution address?
+        // TODO do we care whether an image is XIP or not?
+        let reset_vector = image[1];
+        if reset_vector & 1 == 0 {
+            // This'll cause an immediate usage fault. Reject it.
+            return false;
+        }
+        let image_base = image.as_ptr() as u32;
+        let image_addr_range = image_base..image_base + SLOT_SIZE_WORDS as u32 * 4;
+
+        if !image_addr_range.contains(&(reset_vector & !1)) {
+            // Reset vector points out of the image, which seems really darn
+            // suspicious.
+            return false;
+        }
+    }
+
     let bt = romapi::bootloader_tree();
     let auth = bt.skboot.skboot_authenticate;
     let mut is_verified = 0;
