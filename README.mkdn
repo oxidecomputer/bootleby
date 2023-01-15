@@ -1,0 +1,21 @@
+# Sketching on an alternate stage0
+
+This is a work in progress.
+
+## Building
+
+`cargo build` will do. Add `--release` if you're evaluating sizes.
+
+## Testing
+
+No tests yet.
+
+## Dev workflow
+
+`rust-analyzer` works in this codebase and I intend to keep it that way. Make
+sure you've installed the one corresponding to the pinned toolchain, for good
+measure.
+
+The `main` branch is protected, code must pass the build before being pushed
+there. Currently reviews aren't required because I'm iterating and intend to get
+eyes on the _whole thing_ later.
