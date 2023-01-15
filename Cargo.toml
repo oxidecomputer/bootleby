@@ -1,0 +1,28 @@
+[package]
+name = "stage0"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["inline-asm"] }
+cortex-m-rt = "0.7.2"
+lpc55-pac = { version = "0.5.0", features = ["rt"] }
+num-derive = { version = "0.3.3", default-features = false }
+num-traits = { version = "0.2.15", default-features = false }
+panic-halt = "0.2.0"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
+lto = true
+debug = true
+
+[[bin]]
+name = "stage0"
+test = false
+bench = false
