@@ -181,10 +181,12 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "crc",
+ "crc-catalog",
  "lpc55-pac",
  "num-derive",
  "num-traits",
  "panic-halt",
+ "tinycrc",
 ]
 
 [[package]]
@@ -196,6 +198,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tinycrc"
+version = "0.1.0"
+dependencies = [
+ "crc",
+ "crc-catalog",
 ]
 
 [[package]]

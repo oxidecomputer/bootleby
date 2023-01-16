@@ -9,10 +9,12 @@ edition = "2021"
 cortex-m = { version = "0.7.7", features = ["inline-asm"] }
 cortex-m-rt = "0.7.2"
 crc = { version = "3.0.0", default-features = false }
+crc-catalog = "2.2.0"
 lpc55-pac = { version = "0.5.0", features = ["rt"] }
 num-derive = { version = "0.3.3", default-features = false }
 num-traits = { version = "0.2.15", default-features = false }
 panic-halt = "0.2.0"
+tinycrc = {path = "tinycrc"}
 
 [profile.dev]
 opt-level = 1
@@ -27,3 +29,8 @@ debug = true
 name = "stage0"
 test = false
 bench = false
+
+[workspace]
+members = [
+    "tinycrc",
+]

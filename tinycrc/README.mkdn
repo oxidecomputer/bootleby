@@ -1,0 +1,11 @@
+# `tinycrc`
+
+A Rust CRC crate that is tiny.
+
+Most CRC implementations are written with performance in mind, and use lookup
+tables (in RAM or ROM) to accelerate operations that can be slow on some
+processors. In the case of CRC32, these lookup tables cost 1 kiB per algorithm
+used. In very size-constrained applications, that's unacceptable.
+
+In cases where size is more important than performance, consider `tinycrc` -- it
+does the same work in about 20% of the space.
