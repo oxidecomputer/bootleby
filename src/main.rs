@@ -65,10 +65,10 @@ fn verify_image(
     // ROM, let's do some basic checks before handing it a blob to inspect,
     // shall we?
     let image_type = image[9];
-    if false {
+    {
         // TODO: when we begin requiring secure stage1, we do it here.
         match image_type {
-            1 | 4 | 0x8001 => {
+            4 => {
                 // Validate that the secondary header offset is in bounds.
                 // TODO: we can do better than this:
                 let header_offset = image[10];
@@ -76,15 +76,43 @@ fn verify_image(
                     return false;
                 }
             }
-            2 | 5 => {
-                // CRC checksum... we can probably trust the ROM to compute
-                // this?
+            5 => {
+                // CRC checksum used by the ROM. It'd be great if the ROM would
+                // check this for us, wouldn't it?
+                //
+                // It won't though.
+
+                // We only CRC the range specified by the image length. We
+                // require it to be a multiple of 4 to make our lives easier.
+                // The image length is in word 8.
+                let image_length = image[8];
+                if image_length > SLOT_SIZE_WORDS as u32 {
+                    return false;
+                }
+                if image_length % 4 != 0 {
+                    return false;
+                }
+
+                let mut crc = crc_any::CRCu32::crc32mpeg2();
+
+                // We want to add in all the image words _except_ the CRC word,
+                // which is word 10.
+                for &word in image[..10].iter().chain(&image[11..image_length as usize / 4]) {
+                    crc.digest(&word.to_le_bytes());
+                }
+                let expected_crc = crc.get_crc();
+                let actual_crc = image[10];
+
+                if expected_crc != actual_crc {
+                    return false;
+                }
             }
             0 => {
                 // No secondary header.
             }
             _ => {
-                // Bogus image type.
+                // Bogus image type. Note that this includes the non-XIP image
+                // types.
                 return false;
             }
         }
@@ -103,6 +131,20 @@ fn verify_image(
             // suspicious.
             return false;
         }
+
+        if image_type != 0 {
+            // Word 13 is the execution address. This must match the image base,
+            // since we only support XIP images.
+            if image[13] != image_base {
+                return false;
+            }
+        }
+    }
+
+    if image_type == 5 {
+        // Plain CRC XIP image. skboot_authenticate doesn't like these. We
+        // checked the CRC above.
+        return true;
     }
 
     let bt = romapi::bootloader_tree();
