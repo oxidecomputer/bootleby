@@ -19,3 +19,194 @@ measure.
 The `main` branch is protected, code must pass the build before being pushed
 there. Currently reviews aren't required because I'm iterating and intend to get
 eyes on the _whole thing_ later.
+
+## Demo using fake keys and signed images
+
+This has been tested using the LPCXpresso55S69 board.
+
+### Getting Started
+
+You will need the [`lpc55_support`] crate checked out. (At the time of this
+writing, you specifically need the `multiimage` branch. This may have been
+merged by the time you read this.)
+
+- Install a jumper on P1 (near the Debug Link USB connector) to break serial
+  connection to the LPCLINK2 because I couldn't get it to work reliably.
+
+- Connect a USB cable to the Debug Link connector for power (and GDB if you need
+  it).
+
+- Connect a 3.3V serial cable to P8 (all the way across the board to the right),
+  keeping in mind that the legend is from the _host's_ perspective (e.g. TX is
+  coming from the host to the LPC55).
+
+- Press and hold the ISP button (far right), and press and release the Reset
+  button while holding ISP.
+
+In the `lpc55_support` crate, run this command to check if you're successfully
+talking to the bootloader (replace `/dev/ttyUSB0` with the name of your serial
+adapter):
+
+```
+cargo run --bin lpc55_flash /dev/ttyUSB0 ping
+```
+
+### Building stage0 and extracting a bin file
+
+In _this_ repo, run
+
+```
+cargo build --release
+arm-none-eabi-objcopy -O binary target/thumbv8m.main-none-eabihf/release/stage0 stage0.bin
+```
+
+### Generating a signed stage0
+
+All commands in this section must be executed inside your `lpc55_support`
+checkout, and **must all be prefixed with `cargo run --bin`**. I just got tired
+of repeating that part.
+
+These commands will reference files in the stage0 repo (home of this README
+file). I'll symbolically represent that path as `$STAGE0` below. Either define
+an environment variable with the path, or replace it in the commands.
+
+```
+lpc55_sign signed-image $STAGE0/stage0.bin \
+    $STAGE0/demo/fake_private_key.pem \
+    $STAGE0/demo/fake_certificate.der.crt \
+    $STAGE0/stage0_signed.bin \
+    $STAGE0/stage0_cmpa.bin
+```
+
+This will produce two files in `$STAGE0`: `stage0_signed.bin` is a signed
+version of the stage0 build, and `stage0_cmpa.bin` is an image containing the
+keys to be programmed into the chip's Customer Manufacturing Parameter Area
+(CMPA).
+
+
+### Generating A/B images
+
+Two demo images are included in `$STAGE0/demo`, `slot_a.bin` and `slot_b.bin`.
+The slot A image will turn the LED green if it boots; the B image will turn it
+blue. This way you can tell them apart.
+
+Currently stage0 is configured to boot either correctly signed images, or
+unsigned images with a correct NXP CRC. Let's make one of each!
+
+From `lpc55_support`, sign the demo slot A program using the same key as before,
+discarding the CMPA output, and specifying the program's load address (since
+we're using bin files, the load addresses are lost):
+
+```
+lpc55_sign signed-image $STAGE0/demo/slot_a.bin \
+    $STAGE0/demo/fake_private_key.pem \
+    $STAGE0/demo/fake_certificate.der.crt \
+    $STAGE0/demo/slot_a_signed.bin \
+    /dev/null \
+    --address 0x10008000
+```
+
+Then, wrap the slot B program in a CRC image without a signature:
+
+```
+lpc55_sign crc $STAGE0/demo/slot_b.bin \
+    $STAGE0/demo/slot_b_crc.bin \
+    --address 0x10052c00
+```
+
+You should now have `slot_a_signed.bin` and `slot_b_crc.bin` files in
+`$STAGE0/demo`.
+
+### Erasing the flash and any existing keys
+
+For good measure let's begin by putting the chip into a fairly pristine state.
+This isn't strictly necessary if your board is brand new but doesn't hurt
+anything.
+
+```
+lpc55_flash /dev/ttyUSB0 erase-cmpa
+lpc55_flash /dev/ttyUSB0 flash-erase-all
+```
+
+### Loading the keys and CMPA contents
+
+This will overwrite the newly-erased CMPA with our certificate:
+
+```
+lpc55_flash /dev/ttyUSB0 write-cmpa $STAGE0/stage0_cmpa.bin
+```
+
+### Programming our images
+
+We now have three separate images that need to be placed at three separate areas
+in Flash. We can do that by running the following three commands (in
+`lpc55_support`):
+
+```
+lpc55_flash /dev/ttyUSB0 write-memory 0x10000000 $STAGE0/stage0_signed.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0x10008000 $STAGE0/demo/slot_a_signed.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0x10052c00 $STAGE0/demo/slot_b_crc.bin
+```
+
+### Trying it out and troubleshooting
+
+Hit the RESET button.
+
+You should see the LED light green. This means slot A has been booted, which
+means that stage0 successfully verified its signature and chain-loaded it.
+
+Try holding the USER button while you reset the board. The LED should light
+blue. This is because stage0 is currently configured to treat the USER button as
+an image selection override and prefer slot B if both are present.
+
+If something goes wrong, you'll see one of two results:
+
+- LED lights red: stage0 found no valid images or panicked while verifying them.
+  Try performing the steps above again, making sure you didn't skip anything. If
+  it still doesn't work please report it.
+
+- LED lights blue without USER button held: stage0 doesn't believe slot A is
+  signed correctly. This usually means you forgot to load the keys into the
+  CMPA, but could also be an error in the sign command (in particular, make sure
+  the load address is specified as given above).
+
+- LED does not turn on: stage0 has failed to start, and is probably sitting in a
+  HardFault handler. This usually happens because you failed to program either
+  slot A or slot B; stage0 will currently crash if it reads erased flash. If
+  both slots are programmed, please report this.
+
+
+### Rewriting just one image
+
+The `multiimage` branch extended `lpc55_flash` with the ability to do surgical
+erases, which means we can now erase/replace just one of our three programs.
+
+For stage0:
+
+```
+lpc55_flash /dev/ttyUSB0 flash-erase-region 0x10000000 0x1000
+lpc55_flash /dev/ttyUSB0 write-memory 0x10000000 $STAGE0/stage0_signed.bin
+```
+
+For slot A:
+
+```
+lpc55_flash /dev/ttyUSB0 flash-erase-region 0x10008000 0x1000
+lpc55_flash /dev/ttyUSB0 write-memory 0x10008000 $STAGE0/demo/slot_a_signed.bin
+```
+
+For slot B:
+
+```
+lpc55_flash /dev/ttyUSB0 flash-erase-region 0x10052c00 0x1000
+lpc55_flash /dev/ttyUSB0 write-memory 0x10052c00 $STAGE0/demo/slot_b_crc.bin
+```
+
+This also gives you the opportunity to experiment with installing signed,
+unsigned, or even entirely bogus images to see what stage0 does.
+
+If you erase slot A or B and attempt to boot, stage0 will currently crash (see
+above). If you erase stage0 and attempt to boot, you'll end up in the
+bootloader.
+
+[`lpc55_support`]: https://github.com/oxidecomputer/lpc55_support/
