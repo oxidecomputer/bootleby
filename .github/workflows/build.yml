@@ -25,5 +25,11 @@ jobs:
       with:
         path: target
         key: ${{ runner.os }}-cargo-target-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+    - name: Cache downloaded toolchain(s)
+      uses: actions/cache@v3
+      continue-on-error: true
+      with:
+        path: ~/.rustup
+        key: ${{ runner.os }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
     - name: Build
       run: cargo build
