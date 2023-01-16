@@ -93,14 +93,15 @@ fn verify_image(
                     return false;
                 }
 
-                let mut crc = crc_any::CRCu32::crc32mpeg2();
+                let crc_method = crc::Crc::<u32>::new(&crc::CRC_32_MPEG_2);
+                let mut crc = crc_method.digest();
 
                 // We want to add in all the image words _except_ the CRC word,
                 // which is word 10.
                 for &word in image[..10].iter().chain(&image[11..image_length as usize / 4]) {
-                    crc.digest(&word.to_le_bytes());
+                    crc.update(&word.to_le_bytes());
                 }
-                let expected_crc = crc.get_crc();
+                let expected_crc = crc.finalize();
                 let actual_crc = image[10];
 
                 if expected_crc != actual_crc {
