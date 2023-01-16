@@ -3,8 +3,6 @@
 
 mod romapi;
 
-// TODO: we will want our own custom panic handling
-use panic_halt as _;
 use cortex_m_rt::entry;
 use lpc55_pac::interrupt;
 
@@ -13,6 +11,10 @@ use lpc55_pac::interrupt;
 /// control.
 #[entry]
 fn main() -> ! {
+    let p = lpc55_pac::Peripherals::take().unwrap();
+    // Make the USER button a digital input.
+    p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
+
     let a_ok = verify_image(image_a());
     let b_ok = verify_image(image_b());
 
@@ -23,32 +25,53 @@ fn main() -> ! {
         (true, false) => ImageChoice::A,
         (false, true) => ImageChoice::B,
         (true, true) => {
-            // TODO: technically this does break ties, but not in a useful way!
-            ImageChoice::A
+            // Break ties based on the state of the USER button (0 means
+            // depressed)
+            if p.GPIO.b[1].b_[9].read().bits() == 0 {
+                // button is held
+                ImageChoice::B
+            } else {
+                ImageChoice::A
+            }
         }
-        _ => panic!("no valid images"),
+        _ => panic!(),
     };
 
-    match choice {
-        ImageChoice::A => boot_into(image_a()),
-        ImageChoice::B => boot_into(image_b()),
+    boot_into(match choice {
+        ImageChoice::A => image_a(),
+        ImageChoice::B => image_b(),
+    })
+}
+
+#[panic_handler]
+fn panic_handler(_: &core::panic::PanicInfo) -> ! {
+    // Safety: the GPIO peripheral is static, and we're not racing anyone by
+    // definition since we're in the process of panicking to a halt.
+    let gpio = unsafe { &*lpc55_pac::GPIO::ptr() };
+    // Turn on the RED LED on the xpresso board.
+    gpio.dir[1].write(|w| unsafe { w.bits(1 << 6) });
+
+    // Park!
+    loop {
+        cortex_m::asm::bkpt();
     }
 }
 
+#[inline(never)]
 fn verify_image(
     image: &'static [u32; SLOT_SIZE_WORDS],
 ) -> bool {
     // Because of our past experience with the implementation quality of the
     // ROM, let's do some basic checks before handing it a blob to inspect,
     // shall we?
-    {
+    let image_type = image[9];
+    if false {
         // TODO: when we begin requiring secure stage1, we do it here.
-        let image_type = image[4];
         match image_type {
             1 | 4 | 0x8001 => {
                 // Validate that the secondary header offset is in bounds.
                 // TODO: we can do better than this:
-                let header_offset = image[5];
+                let header_offset = image[10];
                 if header_offset >= SLOT_SIZE_WORDS as u32 {
                     return false;
                 }
@@ -102,7 +125,7 @@ fn verify_image(
     // handler that redirects into the ROM (below) without doing any
     // potentially-racy things to our state, so that's ok. We'll disable it in
     // just a bit.
-    let mut is_verified = 0;
+    let mut is_verified = 1234; // function doesn't always initialize this
     let result = unsafe {
         auth(image.as_ptr(), &mut is_verified)
     };
