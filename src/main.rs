@@ -71,10 +71,10 @@ fn verify_image(
     image: &'static [u32; SLOT_SIZE_WORDS],
 ) -> bool {
     // Convert the image address to a Flash word number.
-    let start_word = (image.as_ptr() as u32 / 16) & ((1 << 18) - 1);
+    let start_fword = (image.as_ptr() as u32 / 16) & ((1 << 18) - 1);
     // Verify that the _first_ page of the image has been programmed. Without
     // this, we can't load the image size.
-    if !is_programmed(flash, start_word) {
+    if !is_programmed(flash, start_fword) {
         // Welp, we certainly can't boot an image that's missing its first page.
         return false;
     }
@@ -87,11 +87,11 @@ fn verify_image(
     // clear to read it.
     let image_length = image[8];
 
-    let image_length_words = (image_length + 15) / 16;
+    let image_length_fwords = (image_length + 15) / 16;
 
     // Verify that every. single. page. of the image is readable, because the
     // ROM doesn't do this despite NXP suggesting it in their app notes.
-    for w in start_word + 1 .. start_word + image_length_words {
+    for w in start_fword + 1 .. start_fword + image_length_fwords {
         if !is_programmed(flash, w) {
             return false;
         }
