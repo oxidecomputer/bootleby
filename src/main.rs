@@ -64,32 +64,34 @@ fn verify_image(
     flash: &lpc55_pac::FLASH,
     image: &'static [u32; SLOT_SIZE_WORDS],
 ) -> bool {
-    // The controller addresses flash in terms of words, which are 128 bits, or
-    // 16 bytes, or 4 words each. The end word is _inclusive._ This means that
-    // since we're poking the first page only, we can use the same value for
-    // both!
-    let start_word = image.as_ptr() as u32 / 16;
-    // Issue a blank-check command. There's a pseudocode example of this in UM
-    // 5.7.11.
-    flash.int_clr_status.write(|w| unsafe { w.bits(0xF) });
-    flash.starta.write(|w| unsafe { w.starta().bits(start_word) });
-    flash.stopa.write(|w| unsafe { w.stopa().bits(start_word) });
-    flash.cmd.write(|w| unsafe { w.cmd().bits(5) });
-
-    while !flash.int_status.read().done().bit() {
-        // spin.
-    }
-
-    if flash.int_status.read().fail().bit() {
-        // Counter-intuitively, FAIL here means we succeeded, in that the page
-        // is _not_ blank.
-    } else {
-        // The page is erased. Do not attempt to read from it.
+    // Convert the image address to a Flash word number.
+    let start_word = (image.as_ptr() as u32 / 16) & ((1 << 18) - 1);
+    // Verify that the _first_ page of the image has been programmed. Without
+    // this, we can't load the image size.
+    if !is_programmed(flash, start_word) {
+        // Welp, we certainly can't boot an image that's missing its first page.
         return false;
     }
 
     // Do not permit the compiler to hoist any accesses through `image` above
     // that check.
+    core::sync::atomic::compiler_fence(Ordering::SeqCst);
+
+    // Read the image length from word 8. This is within the first page so we're
+    // clear to read it.
+    let image_length = image[8];
+
+    let image_length_words = (image_length + 15) / 16;
+
+    // Verify that every. single. page. of the image is readable, because the
+    // ROM doesn't do this despite NXP suggesting it in their app notes.
+    for w in start_word + 1 .. start_word + image_length_words {
+        if !is_programmed(flash, w) {
+            return false;
+        }
+    }
+
+    // for good measure:
     core::sync::atomic::compiler_fence(Ordering::SeqCst);
 
     // Because of our past experience with the implementation quality of the
@@ -116,7 +118,6 @@ fn verify_image(
                 // We only CRC the range specified by the image length. We
                 // require it to be a multiple of 4 to make our lives easier.
                 // The image length is in word 8.
-                let image_length = image[8];
                 if image_length > SLOT_SIZE_WORDS as u32 {
                     return false;
                 }
@@ -212,6 +213,40 @@ fn verify_image(
     //      - NXP UM11126 section 7.4.1
     result == romapi::SkbootStatus::Success as u32
         && is_verified == romapi::SecureBool::TrackerVerified as u32
+}
+
+/// Checks if the page containing `word_number` has been programmed since it was
+/// last erased. Since reading from an erased page will fault, it's important to
+/// do this before accessing any page that is possibly erased.
+///
+/// Words are 128 bits, or 16 bytes, or 4 u32 words in size, and are numbered
+/// starting from the base of flash.
+#[inline(never)]
+fn is_programmed(
+    flash: &lpc55_pac::FLASH,
+    word_number: u32,
+) -> bool {
+    // Issue a blank-check command. There's a pseudocode example of this in UM
+    // 5.7.11.
+    //
+    // Since the STOPA is _inclusive_ we can use the same address for both.
+    flash.int_clr_status.write(|w| unsafe { w.bits(0xF) });
+    flash.starta.write(|w| unsafe { w.starta().bits(word_number) });
+    flash.stopa.write(|w| unsafe { w.stopa().bits(word_number) });
+    flash.cmd.write(|w| unsafe { w.cmd().bits(5) });
+
+    while !flash.int_status.read().done().bit() {
+        // spin.
+    }
+
+    if flash.int_status.read().fail().bit() {
+        // Counter-intuitively, FAIL here means we succeeded, in that the page
+        // is _not_ blank.
+        true
+    } else {
+        // The page is erased. Do not attempt to read from it.
+        false
+    }
 }
 
 fn boot_into(image: &'static [u32; SLOT_SIZE_WORDS]) -> ! {
