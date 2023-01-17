@@ -84,9 +84,29 @@ fn verify_image(
     core::sync::atomic::compiler_fence(Ordering::SeqCst);
 
     // Read the image length from word 8. This is within the first page so we're
-    // clear to read it.
+    // clear to read it. (It's also below the static SLOT_SIZE_WORDS bound, so
+    // it doesn't incur a bounds check.)
     let image_length = image[8];
 
+    // Our validation below requires that the image contain at least 11
+    // u32-sized values, for a total size of...
+    if image_length < 11 * 4 {
+        return false;
+    }
+    // Suggesting that the image is larger than the flash slot is hella sus.
+    if image_length as usize / 4 >= image.len() {
+        return false;
+    }
+    // For implementation convenience reasons below, we require that the image
+    // size is a multiple of 4. The NXP ROM doesn't require this, so, we're
+    // being slightly stricter than necessary.
+    if image_length % 4 != 0 {
+        return false;
+    }
+
+    // Round up to a whole number of flash words (128 bits / 16 bytes each).
+    // The generation of an overflow check on the addition is prevented by
+    // bounding image_length to under the image.len above.
     let image_length_fwords = (image_length + 15) / 16;
 
     // Verify that every. single. page. of the image is readable, because the
@@ -121,20 +141,13 @@ fn verify_image(
                 //
                 // It won't though.
 
-                // We only CRC the range specified by the image length. We
-                // require it to be a multiple of 4 to make our lives easier.
-                // The image length is in word 8.
-                if image_length > SLOT_SIZE_WORDS as u32 {
-                    return false;
-                }
-                if image_length % 4 != 0 {
-                    return false;
-                }
+                // We have already verified that image_length seems plausible.
 
                 let mut crc = tinycrc::Crc32::new(&crc_catalog::CRC_32_MPEG_2);
 
                 // We want to add in all the image words _except_ the CRC word,
-                // which is word 10.
+                // which is word 10. The [11..] doesn't generate a bounds check
+                // because we've checked that image_length/4 > 11 above.
                 for &word in image[..10].iter().chain(&image[11..image_length as usize / 4]) {
                     crc.update(&word.to_le_bytes());
                 }
@@ -145,12 +158,10 @@ fn verify_image(
                     return false;
                 }
             }
-            0 => {
-                // No secondary header.
-            }
             _ => {
-                // Bogus image type. Note that this includes the non-XIP image
-                // types.
+                // Unsupported image type. Note that this includes the non-XIP
+                // image types, and also simple Cortex-M images without CRC or
+                // signature.
                 return false;
             }
         }
@@ -161,10 +172,9 @@ fn verify_image(
             // This'll cause an immediate usage fault. Reject it.
             return false;
         }
-        let image_base = image.as_ptr() as u32;
-        let image_addr_range = image_base..image_base + SLOT_SIZE_WORDS as u32 * 4;
+        let image_addr_range = image.as_ptr_range();
 
-        if !image_addr_range.contains(&(reset_vector & !1)) {
+        if !image_addr_range.contains(&((reset_vector & !1) as *const u32)) {
             // Reset vector points out of the image, which seems really darn
             // suspicious.
             return false;
@@ -173,7 +183,7 @@ fn verify_image(
         if image_type != 0 {
             // Word 13 is the execution address. This must match the image base,
             // since we only support XIP images.
-            if image[13] != image_base {
+            if image[13] != image.as_ptr() as u32 {
                 return false;
             }
         }
