@@ -3,6 +3,8 @@
 
 mod romapi;
 
+use core::sync::atomic::Ordering;
+
 use cortex_m_rt::entry;
 use lpc55_pac::interrupt;
 
@@ -15,8 +17,8 @@ fn main() -> ! {
     // Make the USER button a digital input.
     p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
 
-    let a_ok = verify_image(image_a());
-    let b_ok = verify_image(image_b());
+    let a_ok = verify_image(&p.FLASH, image_a());
+    let b_ok = verify_image(&p.FLASH, image_b());
 
     #[derive(Copy, Clone, Debug)]
     enum ImageChoice { A, B }
@@ -59,8 +61,37 @@ fn panic_handler(_: &core::panic::PanicInfo) -> ! {
 
 #[inline(never)]
 fn verify_image(
+    flash: &lpc55_pac::FLASH,
     image: &'static [u32; SLOT_SIZE_WORDS],
 ) -> bool {
+    // The controller addresses flash in terms of words, which are 128 bits, or
+    // 16 bytes, or 4 words each. The end word is _inclusive._ This means that
+    // since we're poking the first page only, we can use the same value for
+    // both!
+    let start_word = image.as_ptr() as u32 / 16;
+    // Issue a blank-check command. There's a pseudocode example of this in UM
+    // 5.7.11.
+    flash.int_clr_status.write(|w| unsafe { w.bits(0xF) });
+    flash.starta.write(|w| unsafe { w.starta().bits(start_word) });
+    flash.stopa.write(|w| unsafe { w.stopa().bits(start_word) });
+    flash.cmd.write(|w| unsafe { w.cmd().bits(5) });
+
+    while !flash.int_status.read().done().bit() {
+        // spin.
+    }
+
+    if flash.int_status.read().fail().bit() {
+        // Counter-intuitively, FAIL here means we succeeded, in that the page
+        // is _not_ blank.
+    } else {
+        // The page is erased. Do not attempt to read from it.
+        return false;
+    }
+
+    // Do not permit the compiler to hoist any accesses through `image` above
+    // that check.
+    core::sync::atomic::compiler_fence(Ordering::SeqCst);
+
     // Because of our past experience with the implementation quality of the
     // ROM, let's do some basic checks before handing it a blob to inspect,
     // shall we?
