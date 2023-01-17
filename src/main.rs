@@ -13,7 +13,13 @@ use lpc55_pac::interrupt;
 /// control.
 #[entry]
 fn main() -> ! {
-    let p = lpc55_pac::Peripherals::take().unwrap();
+    // Safety: This is sound as long as (1) `steal` only happens once, and (2)
+    // none of the correctness of the rest of the code relies on peripherals
+    // being uniquely held. The first part we can ensure by putting this at the
+    // top of `main`, which `entry` makes hard to reentrantly call in safe code.
+    // The second one is architectural but holds due to our design.
+    let p = unsafe { lpc55_pac::Peripherals::steal() };
+
     // Make the USER button a digital input.
     p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
 
