@@ -4,4 +4,5 @@ target = "thumbv8m.main-none-eabihf"
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 rustflags = [
     "-C", "link-arg=-Tlink.x",
+    "-C", "overflow-checks=y",
 ]
