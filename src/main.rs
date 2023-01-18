@@ -2,6 +2,7 @@
 #![no_main]
 
 mod romapi;
+mod sha256;
 
 use core::sync::atomic::Ordering;
 
@@ -45,10 +46,14 @@ fn main() -> ! {
         _ => panic!(),
     };
 
-    boot_into(match choice {
+    let chosen = match choice {
         ImageChoice::A => image_a(),
         ImageChoice::B => image_b(),
-    })
+    };
+    crate::sha256::update_cdi(&p.SYSCON, &p.HASHCRYPT, &chosen[..64]);
+    boot_into(
+        chosen,
+    )
 }
 
 #[panic_handler]
@@ -265,7 +270,9 @@ fn is_programmed(
     }
 }
 
-fn boot_into(image: &'static [u32; SLOT_SIZE_WORDS]) -> ! {
+fn boot_into(
+    image: &'static [u32; SLOT_SIZE_WORDS],
+) -> ! {
     //todo!("turn off peripherals");
 
     // The NXP image header is _also_ a Cortex-M vector table, stuffing things
