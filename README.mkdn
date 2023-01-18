@@ -2,6 +2,9 @@
 
 This is a work in progress.
 
+This is an exercise in reducing the scope of the LPC55 "stage0" bootloader that
+implements redundant firmware image storage on the RoT.
+
 ## Building
 
 `cargo build` will do. Add `--release` if you're evaluating sizes.
@@ -208,5 +211,62 @@ unsigned, or even entirely bogus images to see what stage0 does.
 If you erase slot A or B and attempt to boot, stage0 will currently crash (see
 above). If you erase stage0 and attempt to boot, you'll end up in the
 bootloader.
+
+### Getting DICE to work
+
+If you follow the instructions above, we will provide a DICE CDI to the
+next-stage software, but it will be based _solely_ on the next stage software
+and won't include any measurement of the ROM or stage0. This is because the ROM
+DICE support is turned off by default. Enabling it takes some _doing._
+
+You will need:
+- A CMPA image indicating that DICE should be enabled.
+- A valid CFPA image.
+- To enroll the PUF and generate the UDS.
+
+These instructions assume `$STAGE0/stage0.bin` is the binary stage0 extracted
+during a previous build step. We need to sign it _slightly differently_ to get
+the CFPA and then run some other steps. From `lpc55_support`, and again
+prefixing each command with `cargo run --bin`, do:
+
+```
+lpc55_sign signed-image $STAGE0/stage0.bin \
+    $STAGE0/demo/fake_private_key.pem \
+    $STAGE0/demo/fake_certificate.der.crt \
+    $STAGE0/stage0_signed.bin \
+    $STAGE0/stage0_cmpa.bin \
+    --cfpa $STAGE0/stage0_cfpa.bin \
+    --with-dice \
+    --with-dice-inc-nxp-cfg \
+    --with-dice-cust-cfg \
+    --with-dice-inc-sec-epoch
+
+lpc55_flash /dev/ttyUSB0 erase-cmpa
+
+lpc55_flash /dev/ttyUSB0 write-cmpa $STAGE0/stage0_cmpa.bin
+
+lpc55_flash /dev/ttyUSB0 write-cfpa \
+    $STAGE0/stage0_cfpa.bin \
+    --update-version
+
+lpc55_flash /dev/ttyUSB0 erase-key-store
+lpc55_flash /dev/ttyUSB0 enroll
+lpc55_flash /dev/ttyUSB0 generate-uds
+lpc55_flash /dev/ttyUSB0 write-key-store
+```
+
+If you reboot, it should behave exactly the same as the previous signed stage0.
+Currently you need a debugger to tell the difference. To verify that DICE is on,
+
+1. Set a breakpoint at `main` in stage0.
+2. Dump 8 registers starting at `0x5000_0900` (in pyocd: `read32 0x50000900 32`)
+3. Resume the program and let it boot
+4. Halt it again.
+5. Dump the same registers.
+
+In both dumps, the registers should appear random, and the second dump should be
+different from the first.
+
+If DICE is _not_ successfully enabled, the first dump will be all zeros.
 
 [`lpc55_support`]: https://github.com/oxidecomputer/lpc55_support/
