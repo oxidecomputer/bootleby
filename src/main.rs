@@ -276,7 +276,7 @@ fn boot_into(
     // The NXP image header is _also_ a Cortex-M vector table, stuffing things
     // into reserved places. So we can derive the correct boot values for the
     // SP, PC, and VTOR in the normal way:
-    let (stack, reset, vtor) = (image[0], image[1], image.as_ptr() as u32);
+    let (reset, stack, vtor) = (image[1], image[0], image.as_ptr() as u32);
 
     // And away we go!
     //
