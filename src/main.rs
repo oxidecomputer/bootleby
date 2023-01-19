@@ -27,9 +27,6 @@ fn main() -> ! {
     let a_ok = verify_image(&p.FLASH, image_a());
     let b_ok = verify_image(&p.FLASH, image_b());
 
-    #[derive(Copy, Clone, Debug)]
-    enum ImageChoice { A, B }
-
     let choice = match (a_ok, b_ok) {
         (Some(img), None) => img,
         (None, Some(img)) => img,
