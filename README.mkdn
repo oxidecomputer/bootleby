@@ -78,7 +78,8 @@ lpc55_sign signed-image $STAGE0/stage0.bin \
     $STAGE0/demo/fake_private_key.pem \
     $STAGE0/demo/fake_certificate.der.crt \
     $STAGE0/stage0_signed.bin \
-    $STAGE0/stage0_cmpa.bin
+    $STAGE0/stage0_cmpa.bin \
+    --cfpa $STAGE0/stage0_cfpa.bin \
 ```
 
 This will produce two files in `$STAGE0`: `stage0_signed.bin` is a signed
@@ -131,12 +132,13 @@ lpc55_flash /dev/ttyUSB0 erase-cmpa
 lpc55_flash /dev/ttyUSB0 flash-erase-all
 ```
 
-### Loading the keys and CMPA contents
+### Loading the keys and CMPA/CFPA contents
 
 This will overwrite the newly-erased CMPA with our certificate:
 
 ```
 lpc55_flash /dev/ttyUSB0 write-cmpa $STAGE0/stage0_cmpa.bin
+lpc55_flash /dev/ttyUSB0 write-cfpa $STAGE0/stage0_cfpa.bin
 ```
 
 ### Programming our images
