@@ -31,29 +31,23 @@ fn main() -> ! {
     enum ImageChoice { A, B }
 
     let choice = match (a_ok, b_ok) {
-        (true, false) => ImageChoice::A,
-        (false, true) => ImageChoice::B,
-        (true, true) => {
+        (Some(img), None) => img,
+        (None, Some(img)) => img,
+        (Some(img_a), Some(img_b)) => {
             // Break ties based on the state of the USER button (0 means
             // depressed)
             if p.GPIO.b[1].b_[9].read().bits() == 0 {
                 // button is held
-                ImageChoice::B
+                img_b
             } else {
-                ImageChoice::A
+                img_a
             }
         }
         _ => panic!(),
     };
 
-    let chosen = match choice {
-        ImageChoice::A => image_a(),
-        ImageChoice::B => image_b(),
-    };
-    crate::sha256::update_cdi(&p.SYSCON, &p.HASHCRYPT, &chosen[..64]);
-    boot_into(
-        chosen,
-    )
+    crate::sha256::update_cdi(&p.SYSCON, &p.HASHCRYPT, choice);
+    boot_into(choice)
 }
 
 #[panic_handler]
@@ -70,18 +64,20 @@ fn panic_handler(_: &core::panic::PanicInfo) -> ! {
     }
 }
 
+/// Verifies an image and, if successful, returns the prefix of the `image`
+/// slice that contains valid data per the image header.
 #[inline(never)]
 fn verify_image(
     flash: &lpc55_pac::FLASH,
     image: &'static [u32; SLOT_SIZE_WORDS],
-) -> bool {
+) -> Option<&'static [u32]> {
     // Convert the image address to a Flash word number.
     let start_fword = (image.as_ptr() as u32 / 16) & ((1 << 18) - 1);
     // Verify that the _first_ page of the image has been programmed. Without
     // this, we can't load the image size.
     if !is_programmed(flash, start_fword) {
         // Welp, we certainly can't boot an image that's missing its first page.
-        return false;
+        return None;
     }
 
     // Do not permit the compiler to hoist any accesses through `image` above
@@ -96,17 +92,17 @@ fn verify_image(
     // Our validation below requires that the image contain at least 11
     // u32-sized values, for a total size of...
     if image_length < 11 * 4 {
-        return false;
+        return None;
     }
     // Suggesting that the image is larger than the flash slot is hella sus.
     if image_length as usize / 4 >= image.len() {
-        return false;
+        return None;
     }
     // For implementation convenience reasons below, we require that the image
     // size is a multiple of 4. The NXP ROM doesn't require this, so, we're
     // being slightly stricter than necessary.
     if image_length % 4 != 0 {
-        return false;
+        return None;
     }
 
     // Round up to a whole number of flash words (128 bits / 16 bytes each).
@@ -118,7 +114,7 @@ fn verify_image(
     // ROM doesn't do this despite NXP suggesting it in their app notes.
     for w in start_fword + 1 .. start_fword + image_length_fwords {
         if !is_programmed(flash, w) {
-            return false;
+            return None;
         }
     }
 
@@ -137,7 +133,7 @@ fn verify_image(
                 // TODO: we can do better than this:
                 let header_offset = image[10];
                 if header_offset >= SLOT_SIZE_WORDS as u32 {
-                    return false;
+                    return None;
                 }
             }
             5 => {
@@ -160,14 +156,14 @@ fn verify_image(
                 let actual_crc = image[10];
 
                 if expected_crc != actual_crc {
-                    return false;
+                    return None;
                 }
             }
             _ => {
                 // Unsupported image type. Note that this includes the non-XIP
                 // image types, and also simple Cortex-M images without CRC or
                 // signature.
-                return false;
+                return None;
             }
         }
         // TODO do we need to check the execution address?
@@ -175,21 +171,21 @@ fn verify_image(
         let reset_vector = image[1];
         if reset_vector & 1 == 0 {
             // This'll cause an immediate usage fault. Reject it.
-            return false;
+            return None;
         }
         let image_addr_range = image.as_ptr_range();
 
         if !image_addr_range.contains(&((reset_vector & !1) as *const u32)) {
             // Reset vector points out of the image, which seems really darn
             // suspicious.
-            return false;
+            return None;
         }
 
         if image_type != 0 {
             // Word 13 is the execution address. This must match the image base,
             // since we only support XIP images.
             if image[13] != image.as_ptr() as u32 {
-                return false;
+                return None;
             }
         }
     }
@@ -197,7 +193,7 @@ fn verify_image(
     if image_type == 5 {
         // Plain CRC XIP image. skboot_authenticate doesn't like these. We
         // checked the CRC above.
-        return true;
+        return Some(&image[..image_length as usize / 4]);
     }
 
     let bt = romapi::bootloader_tree();
@@ -232,8 +228,13 @@ fn verify_image(
     // > image only when the function returns kStatus_SKBOOT_Success AND
     // > *isSignVerified == kSECURE_TRACKER_VERIFIED.
     //      - NXP UM11126 section 7.4.1
-    result == romapi::SkbootStatus::Success as u32
+    if result == romapi::SkbootStatus::Success as u32
         && is_verified == romapi::SecureBool::TrackerVerified as u32
+    {
+        Some(&image[..image_length as usize / 4])
+    } else {
+        None
+    }
 }
 
 /// Checks if the page containing `word_number` has been programmed since it was
@@ -271,7 +272,7 @@ fn is_programmed(
 }
 
 fn boot_into(
-    image: &'static [u32; SLOT_SIZE_WORDS],
+    image: &'static [u32],
 ) -> ! {
     //todo!("turn off peripherals");
 
