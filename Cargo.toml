@@ -25,6 +25,11 @@ codegen-units = 1
 lto = true
 debug = true
 
+[lib]
+name = "stage0"
+test = false
+bench = false
+
 [[bin]]
 name = "stage0"
 test = false
