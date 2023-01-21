@@ -10,11 +10,12 @@ cortex-m = { version = "0.7.7", features = ["inline-asm"] }
 cortex-m-rt = "0.7.2"
 crc = { version = "3.0.0", default-features = false }
 crc-catalog = "2.2.0"
+hex-literal = "0.3.4"
 lpc55-pac = { version = "0.5.0", features = ["rt"] }
 num-derive = { version = "0.3.3", default-features = false }
 num-traits = { version = "0.2.15", default-features = false }
-panic-halt = "0.2.0"
 tinycrc = {path = "tinycrc"}
+zerocopy = { version = "0.6.1", default-features = false }
 
 [profile.dev]
 opt-level = 1
@@ -32,6 +33,11 @@ bench = false
 
 [[bin]]
 name = "stage0"
+test = false
+bench = false
+
+[[bin]]
+name = "sha_tests"
 test = false
 bench = false
 
