@@ -16,6 +16,10 @@ fn main() -> ! {
     // being uniquely held. The first part we can ensure by putting this at the
     // top of `main`, which `entry` makes hard to reentrantly call in safe code.
     // The second one is architectural but holds due to our design.
+    //
+    // You're probably wondering why this is `steal` and not `take`. It's
+    // because `take` winds up needing an `unwrap` that is relatively expensive
+    // in code size, to check a property that should not be able to fail.
     let p = unsafe { lpc55_pac::Peripherals::steal() };
 
     // Make the USER button a digital input.
@@ -80,8 +84,22 @@ fn boot_into(
                 @ From the perspective of this program, we're never leaving
                 @ this asm block. This means we can trash Rust invariants.
 
-                @ Scribble our memory. Note that this destroys our stack! We
-                @ can't refer to any stack-allocated anything from here on.
+                @ Usage of registers established by the parameters to asm!
+                @ below:
+                @ r0 = target program reset vector
+                @ r1 = target program initial stack pointer
+                @ r2 = target program vector table address
+                @
+                @ All other registers are available as temporaries, and we'll
+                @ wind up trashing them all one way or another.
+
+                @ Write zeros over our RAM. Note that this destroys our stack!
+                @ We can't refer to any stack-allocated anything from here on.
+                @ (...not that we were going to.)
+                @
+                @ r3 = current address
+                @ r4 = end address
+                @ r5 = zero
                 movw r3, #:lower16:__start_of_ram
                 movt r3, #:upper16:__start_of_ram
                 movw r4, #:lower16:__end_of_ram
@@ -92,25 +110,35 @@ fn boot_into(
                 cmp r3, r4
                 bne 1b
 
-                @ Move the vector table location to the image's table.
+                @ Update the VTOR register to place the vector table in the
+                @ target program image.
+                @
                 @ Note that this means we can't do anything that might
                 @ fault (other than the jump into the image) from here
                 @ on.
-                movw r3, #:lower16:0xE000ED08
+                movw r3, #:lower16:0xE000ED08  @ Get VTOR address into r3
                 movt r3, #:upper16:0xE000ED08
 
                 str r2, [r3]
 
-                @ Clear our registers except the ones containing data
-                @ controlled by the image. Disclosing that data is fine.
+                @ The target program should not assume anything about the
+                @ initial contents of its registers except for PC and SP.
+                @ Just in case, we'll clear our registers except the ones
+                @ that hold values controlled by the target program. Since
+                @ it already knows where its reset vector and stack pointer
+                @ are, disclosing them is not a problem.
+                @
+                @ (You may be wondering why we don't clear _all_ registers.
+                @ The answer is space: we can save a few bytes by skipping
+                @ the image-controlled registers r0-r2.)
                 @
                 @ We can move an immediate zero into any of r0-r7 using a
                 @ simple MOV-immediate instruction (2 bytes), but accessing
                 @ r8+ in this manner costs 4 bytes instead of 2. However,
                 @ moving a value from a low register to high is still 2
                 @ bytes. And so:
-                movs r3, #0
-                movs r4, #0
+                movs r3, #0     @ note: the S in MOVS is required for the
+                movs r4, #0     @ 2-byte encoding to be chosen.
                 movs r5, #0
                 movs r6, #0
                 movs r7, #0
@@ -124,7 +152,11 @@ fn boot_into(
                 mov r14, r7   @ LR
 
                 @ Set the stack pointer to the location the image wants.
-                msr MSP, r1
+                @ Strictly speaking we want to set the Main Stack Pointer or
+                @ MSP. However, by default SP is an alias of MSP, and we
+                @ haven't changed this. MOV SP is two bytes shorter than
+                @ MSR MSP.
+                mov SP, r1
 
                 @ Jump into the image. We're using a simple BX here so that
                 @ we remain in secure mode.
