@@ -1,9 +1,11 @@
 #![no_std]
 #![no_main]
 
+use core::sync::atomic::{compiler_fence, Ordering};
+
 use stage0::{romapi, sha256, SLOT_SIZE_WORDS};
 
-use cortex_m_rt::entry;
+use cortex_m_rt::{entry, exception, ExceptionFrame};
 use lpc55_pac::interrupt;
 
 /// Bootloader entry point. These are not the first instructions executed, since
@@ -50,15 +52,29 @@ fn main() -> ! {
 
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo) -> ! {
+    // We use a BKPT instruction to wake any attached debugger. If no debugger
+    // is attached, BKPT escalates into a HardFault, falling to the handler
+    // below. This way we can reuse its fault indication code.
+    loop {
+        cortex_m::asm::bkpt();
+    }
+}
+
+#[exception]
+unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     // Safety: the GPIO peripheral is static, and we're not racing anyone by
-    // definition since we're in the process of panicking to a halt.
+    // definition since we're handling a HardFault. So we win.
     let gpio = unsafe { &*lpc55_pac::GPIO::ptr() };
     // Turn on the RED LED on the xpresso board.
     gpio.dir[1].write(|w| unsafe { w.bits(1 << 6) });
 
-    // Park!
+    // Spin -- don't use BKPT here because if no debugger is attached it'll
+    // escalate to another HardFault and lock the processor.
     loop {
-        cortex_m::asm::bkpt();
+        // This is enough to force LLVM to compile the infinite loop as
+        // something other than a UDF, but not enough to generate instructions;
+        // using an explicit nop here costs two bytes more.
+        compiler_fence(Ordering::SeqCst);
     }
 }
 
