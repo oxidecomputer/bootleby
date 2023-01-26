@@ -92,7 +92,7 @@ pub fn update_cdi(
 
     // Deposit it into SYSCON. This has the side effect of preventing disclosure
     // of the original CDI value.
-    for (i, src) in new_cdi.into_iter().enumerate() {
+    for (i, &src) in new_cdi.iter().enumerate() {
         unsafe {
             core::ptr::write_volatile(
                 cdi_pointer.add(i),
