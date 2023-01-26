@@ -3,20 +3,45 @@
 pub mod romapi;
 pub mod sha256;
 
-use core::sync::atomic::Ordering;
+use core::{sync::atomic::Ordering, ptr::addr_of, mem::size_of};
+use zerocopy::{AsBytes, FromBytes};
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SlotId { A, B }
 
 /// Size of each flash image slot in words (which are 32 bits each). The ROM
 /// requires flash images to be 32-bit aligned, and it's easier for us if they
 /// are, too, so we'll just deal in words.
 pub const SLOT_SIZE_WORDS: usize = 299 * 1024 / 4;
 
-/// Verifies an image and, if successful, returns the prefix of the `image`
-/// slice that contains valid data per the image header.
+/// Verifies an image and, if successful, returns two references that alias one
+/// another:
+///
+/// - The first is a reference to the NXP image header at the start of the slot,
+///   as a way of proving that there's enough data to contain a valid image
+///   header.
+/// - The second is the entire image, pruned to its recorded size, as u32s, to
+///   prove that it's 4-byte-aligned and a whole number of words. The first 16
+///   words of this slice are the header.
 #[inline(never)]
 pub fn verify_image(
     flash: &lpc55_pac::FLASH,
-    image: &'static [u32; SLOT_SIZE_WORDS],
-) -> Option<&'static [u32]> {
+    which: SlotId,
+) -> Option<(&'static NxpImageHeader, &'static [u32])> {
+    // Get a reference to one slot or the other. Starting out, we know the
+    // following properties of `image` hold:
+    //
+    // 1. Its base address is 32-bit aligned (required by type system, ensured
+    //    by linker).
+    // 2. It consists of a whole number of 32-bit words (implicit in its
+    //    definition as a `[u32]`).
+    // 3. It is in flash (ensured by linker script).
+    // 4. It refers to one of the firmware slots (ensured by linker script).
+    let image = match which {
+        SlotId::A => unsafe { &IMAGE_A },
+        SlotId::B => unsafe { &IMAGE_B },
+    };
+
     // Convert the image address to a Flash word number.
     let start_fword = (image.as_ptr() as u32 / 16) & ((1 << 18) - 1);
     // Verify that the _first_ page of the image has been programmed. Without
@@ -30,31 +55,40 @@ pub fn verify_image(
     // that check.
     core::sync::atomic::compiler_fence(Ordering::SeqCst);
 
-    // Read the image length from word 8. This is within the first page so we're
-    // clear to read it. (It's also below the static SLOT_SIZE_WORDS bound, so
-    // it doesn't incur a bounds check.)
-    let image_length = image[8];
+    // Okay, now we're willing to interact with the actual array.
+    // Attempt to pun the first 32 bytes as an image header. This doesn't
+    // dereference the reference yet, but we get the following checks for free
+    // from this line:
+    // - Image is 4-byte aligned (we get this from the use of u32 anyway)
+    // - Image is large enough to contain the image header.
+    let (header, _) = zerocopy::LayoutVerified::<_, NxpImageHeader>::new_from_prefix(image.as_bytes())
+        .unwrap();
+    let header = header.into_ref();
 
-    // Our validation below requires that the image contain at least 11
-    // u32-sized values, for a total size of...
-    if image_length < 11 * 4 {
-        return None;
-    }
-    // Suggesting that the image is larger than the flash slot is hella sus.
-    if image_length as usize / 4 >= image.len() {
-        return None;
-    }
     // For implementation convenience reasons below, we require that the image
     // size is a multiple of 4. The NXP ROM doesn't require this, so, we're
     // being slightly stricter than necessary.
-    if image_length % 4 != 0 {
+    if header.image_length % 4 != 0 {
+        return None;
+    }
+    // The claimed length must be large enough to contain the header we're
+    // already using.
+    if (header.image_length as usize) < size_of::<NxpImageHeader>() {
         return None;
     }
 
+    // Slice off the unused portion of the image while simultaneously checking
+    // that the image length fits within the slot. This avoids a bunch of checks
+    // below.
+    let image = image.get(..header.image_length as usize / 4)?;
+
     // Round up to a whole number of flash words (128 bits / 16 bytes each).
-    // The generation of an overflow check on the addition is prevented by
-    // bounding image_length to under the image.len above.
-    let image_length_fwords = (image_length + 15) / 16;
+    //
+    // Rustc likes to insert an overflow check here. We know this isn't going to
+    // overflow because `image_length / 4 < SLOT_LEN_WORDS`, and so
+    // `image_length` is significantly smaller than `u32::MAX`. So, we override
+    // the overflow check.
+    let image_length_fwords = header.image_length.wrapping_add(15) / 16;
 
     // Verify that every. single. page. of the image is readable, because the
     // ROM doesn't do this despite NXP suggesting it in their app notes.
@@ -70,14 +104,13 @@ pub fn verify_image(
     // Because of our past experience with the implementation quality of the
     // ROM, let's do some basic checks before handing it a blob to inspect,
     // shall we?
-    let image_type = image[9];
     {
         // TODO: when we begin requiring secure stage1, we do it here.
-        match image_type {
+        match header.image_type {
             4 => {
                 // Validate that the secondary header offset is in bounds.
                 // TODO: we can do better than this:
-                let header_offset = image[10];
+                let header_offset = header.type_specific_header;
                 if header_offset >= SLOT_SIZE_WORDS as u32 {
                     return None;
                 }
@@ -92,16 +125,21 @@ pub fn verify_image(
 
                 let mut crc = tinycrc::Crc32::new(&crc_catalog::CRC_32_MPEG_2);
 
-                // We want to add in all the image words _except_ the CRC word,
-                // which is word 10. The [11..] doesn't generate a bounds check
-                // because we've checked that image_length/4 > 11 above.
-                for &word in image[..10].iter().chain(&image[11..image_length as usize / 4]) {
-                    crc.update(&word.to_le_bytes());
+                // The CRC calculation simply _skips_ the CRC word, as opposed
+                // to (say) including it with an assumed value of 0. So to CRC
+                // our header we have to jump through...a small hoop.
+                {
+                    let header_bytes = header.as_bytes();
+                    crc.update(&header_bytes[..0x28]);
+                    crc.update(&header_bytes[0x28 + 4..]);
                 }
-                let expected_crc = crc.finish();
-                let actual_crc = image[10];
+                // And now, the rest of the image.
+                crc.update(image[size_of::<NxpImageHeader>() / 4..].as_bytes());
 
-                if expected_crc != actual_crc {
+                let computed_crc = crc.finish();
+                let stored_crc = header.type_specific_header;
+
+                if computed_crc != stored_crc {
                     return None;
                 }
             }
@@ -114,32 +152,31 @@ pub fn verify_image(
         }
         // TODO do we need to check the execution address?
         // TODO do we care whether an image is XIP or not?
-        let reset_vector = image[1];
-        if reset_vector & 1 == 0 {
+        if header.reset_vector & 1 == 0 {
             // This'll cause an immediate usage fault. Reject it.
             return None;
         }
         let image_addr_range = image.as_ptr_range();
 
-        if !image_addr_range.contains(&((reset_vector & !1) as *const u32)) {
+        if !image_addr_range.contains(&((header.reset_vector & !1) as *const u32)) {
             // Reset vector points out of the image, which seems really darn
             // suspicious.
             return None;
         }
 
-        if image_type != 0 {
-            // Word 13 is the execution address. This must match the image base,
-            // since we only support XIP images.
-            if image[13] != image.as_ptr() as u32 {
+        if header.image_type != 0 {
+            // For all image types other than "plain," we require the execution
+            // address to match the actual load address.
+            if header.image_execution_address != image.as_ptr() as u32 {
                 return None;
             }
         }
     }
-
-    if image_type == 5 {
+    
+    if header.image_type == 5 {
         // Plain CRC XIP image. skboot_authenticate doesn't like these. We
         // checked the CRC above.
-        return Some(&image[..image_length as usize / 4]);
+        return Some((header, image));
     }
 
     let bt = romapi::bootloader_tree();
@@ -177,10 +214,23 @@ pub fn verify_image(
     if result == romapi::SkbootStatus::Success as u32
         && is_verified == romapi::SecureBool::TrackerVerified as u32
     {
-        Some(&image[..image_length as usize / 4])
+        Some((header, image))
     } else {
         None
     }
+}
+
+#[derive(Copy, Clone, Debug, AsBytes, FromBytes)]
+#[repr(C)]
+pub struct NxpImageHeader {
+    pub initial_stack_pointer: u32,
+    pub reset_vector: u32,
+    _unrelated_vectors_0: [u32; 6],
+    pub image_length: u32,
+    pub image_type: u32,
+    pub type_specific_header: u32,
+    _unrelated_vectors_1: [u32; 2],
+    pub image_execution_address: u32,
 }
 
 /// Checks if the page containing `word_number` has been programmed since it was
@@ -215,4 +265,10 @@ pub fn is_programmed(
         // The page is erased. Do not attempt to read from it.
         false
     }
+}
+
+// Image regions, placed by the linker script.
+extern "C" {
+    static IMAGE_A: [u32; SLOT_SIZE_WORDS];
+    static IMAGE_B: [u32; SLOT_SIZE_WORDS];
 }

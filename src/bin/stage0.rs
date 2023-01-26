@@ -3,7 +3,7 @@
 
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use stage0::{romapi, sha256, SLOT_SIZE_WORDS};
+use stage0::{romapi, sha256, SlotId, NxpImageHeader};
 
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 use lpc55_pac::interrupt;
@@ -27,10 +27,10 @@ fn main() -> ! {
     // Make the USER button a digital input.
     p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
 
-    let a_ok = stage0::verify_image(&p.FLASH, image_a());
-    let b_ok = stage0::verify_image(&p.FLASH, image_b());
+    let a_ok = stage0::verify_image(&p.FLASH, SlotId::A);
+    let b_ok = stage0::verify_image(&p.FLASH, SlotId::B);
 
-    let choice = match (a_ok, b_ok) {
+    let (header, contents) = match (a_ok, b_ok) {
         (Some(img), None) => img,
         (None, Some(img)) => img,
         (Some(img_a), Some(img_b)) => {
@@ -46,8 +46,8 @@ fn main() -> ! {
         _ => panic!(),
     };
 
-    sha256::update_cdi(&p.SYSCON, &p.HASHCRYPT, choice);
-    boot_into(choice)
+    sha256::update_cdi(&p.SYSCON, &p.HASHCRYPT, contents);
+    boot_into(header)
 }
 
 #[panic_handler]
@@ -79,14 +79,9 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
 }
 
 fn boot_into(
-    image: &'static [u32],
+    header: &'static NxpImageHeader,
 ) -> ! {
     //todo!("turn off peripherals");
-
-    // The NXP image header is _also_ a Cortex-M vector table, stuffing things
-    // into reserved places. So we can derive the correct boot values for the
-    // SP, PC, and VTOR in the normal way:
-    let (reset, stack, vtor) = (image[1], image[0], image.as_ptr() as u32);
 
     // And away we go!
     //
@@ -190,40 +185,12 @@ fn boot_into(
             // every parameter fed in here must be a *value* in a
             // register. If you find yourself passing an *address*
             // things are going to get weird for you.
-            in("r0") reset,
-            in("r1") stack,
-            in("r2") vtor,
+            in("r0") header.reset_vector,
+            in("r1") header.initial_stack_pointer,
+            in("r2") &header as *const _ as u32,
 
             options(noreturn),
         )
-    }
-}
-
-// Image regions, placed by the linker script.
-extern "C" {
-    static IMAGE_A: [u32; SLOT_SIZE_WORDS];
-    static IMAGE_B: [u32; SLOT_SIZE_WORDS];
-}
-
-/// Produces a reference to the A-slot image.
-fn image_a() -> &'static [u32; SLOT_SIZE_WORDS] {
-    // Safety: In general accessing extern statics is unsafe because Rust can't
-    // guarantee that the other code -- because extern implies the presence of
-    // other code -- will refrain from e.g. mutating the data, which would break
-    // the & rules.
-    //
-    // In this case, what other code exists is just going to verify this, and
-    // isn't going to write it, so we can hand out references willy-nilly.
-    unsafe {
-        &IMAGE_A
-    }
-}
-
-/// Produces a reference to the B-slot image.
-fn image_b() -> &'static [u32; SLOT_SIZE_WORDS] {
-    // Safety: see discussion in `image_a` above.
-    unsafe {
-        &IMAGE_B
     }
 }
 
