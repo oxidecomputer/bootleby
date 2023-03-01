@@ -24,8 +24,18 @@ fn main() -> ! {
     // in code size, to check a property that should not be able to fail.
     let p = unsafe { lpc55_pac::Peripherals::steal() };
 
-    // Make the USER button a digital input.
-    p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "target-board-lpc55xpresso")] {
+            // Make the USER button a digital input.
+            p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
+        } else if #[cfg(feature = "target-board-rot-carrier")] {
+            // Make a button attached to the PMOD a digital input.
+            // TODO fix assignment here.
+            p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
+        } else {
+            // No override button on other boards.
+        }
+    }
 
     let a_ok = stage0::verify_image(&p.FLASH, SlotId::A);
     let b_ok = stage0::verify_image(&p.FLASH, SlotId::B);
@@ -34,8 +44,11 @@ fn main() -> ! {
         (Some(img), None) => img,
         (None, Some(img)) => img,
         (Some(img_a), Some(img_b)) => {
+            // TODO check for transient override
+            // TODO check CFPA persistent preference
+
             // Break ties based on the state of the USER button (0 means
-            // depressed)
+            // depressed) TODO remove this
             if p.GPIO.b[1].b_[9].read().bits() == 0 {
                 // button is held
                 img_b

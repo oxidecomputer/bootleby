@@ -105,7 +105,6 @@ pub fn verify_image(
     // ROM, let's do some basic checks before handing it a blob to inspect,
     // shall we?
     {
-        // TODO: when we begin requiring secure stage1, we do it here.
         match header.image_type {
             4 => {
                 // Validate that the secondary header offset is in bounds.
@@ -115,6 +114,7 @@ pub fn verify_image(
                     return None;
                 }
             }
+            #[cfg(feature = "allow-unsigned-images")]
             5 => {
                 // CRC checksum used by the ROM. It'd be great if the ROM would
                 // check this for us, wouldn't it?
@@ -164,15 +164,14 @@ pub fn verify_image(
             return None;
         }
 
-        if header.image_type != 0 {
-            // For all image types other than "plain," we require the execution
-            // address to match the actual load address.
-            if header.image_execution_address != image.as_ptr() as u32 {
-                return None;
-            }
+        // We require the execution address to match the actual load address in
+        // all images, which is more strict than the ROM.
+        if header.image_execution_address != image.as_ptr() as u32 {
+            return None;
         }
     }
     
+    #[cfg(feature = "allow-unsigned-images")]
     if header.image_type == 5 {
         // Plain CRC XIP image. skboot_authenticate doesn't like these. We
         // checked the CRC above.
