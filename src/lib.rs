@@ -2,6 +2,7 @@
 
 pub mod romapi;
 pub mod sha256;
+pub mod bsp;
 
 use core::{sync::atomic::Ordering, mem::size_of};
 use zerocopy::{AsBytes, FromBytes};

@@ -3,7 +3,15 @@
 
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use stage0::{romapi, sha256, SlotId, NxpImageHeader};
+use stage0::{romapi, sha256, SlotId, NxpImageHeader, bsp::Bsp};
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "target-board-lpc55xpresso")] {
+        use stage0::bsp::lpc55xpresso::Board;
+    } else if #[cfg(feature = "target-board-rot-carrier")] {
+        use stage0::bsp::rot_carrier::Board;
+    }
+}
 
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 use lpc55_pac::interrupt;
@@ -24,18 +32,7 @@ fn main() -> ! {
     // in code size, to check a property that should not be able to fail.
     let p = unsafe { lpc55_pac::Peripherals::steal() };
 
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "target-board-lpc55xpresso")] {
-            // Make the USER button a digital input.
-            p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
-        } else if #[cfg(feature = "target-board-rot-carrier")] {
-            // Make a button attached to the PMOD a digital input.
-            // TODO fix assignment here.
-            p.IOCON.pio1_9.modify(|_, w| w.digimode().set_bit());
-        } else {
-            // No override button on other boards.
-        }
-    }
+    Board::configure(&p.IOCON, &p.GPIO);
 
     let a_ok = stage0::verify_image(&p.FLASH, SlotId::A);
     let b_ok = stage0::verify_image(&p.FLASH, SlotId::B);
@@ -44,15 +41,20 @@ fn main() -> ! {
         (Some(img), None) => img,
         (None, Some(img)) => img,
         (Some(img_a), Some(img_b)) => {
-            // TODO check for transient override
-            // TODO check CFPA persistent preference
-
-            // Break ties based on the state of the USER button (0 means
-            // depressed) TODO remove this
-            if p.GPIO.b[1].b_[9].read().bits() == 0 {
-                // button is held
-                img_b
+            // If implemented, allow the override buttons on the eval board to
+            // win over all other mechanisms. (This will compile out for boards
+            // that have no override mechanism.)
+            if let Some(over) = Board::check_override(&p.GPIO) {
+                match over {
+                    SlotId::A => img_a,
+                    SlotId::B => img_b,
+                }
             } else {
+                // TODO check for transient override
+                // TODO check CFPA persistent preference
+
+                // TODO one of those will succeed, eliminating the need for
+                // this:
                 img_a
             }
         }
@@ -78,8 +80,8 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     // Safety: the GPIO peripheral is static, and we're not racing anyone by
     // definition since we're handling a HardFault. So we win.
     let gpio = unsafe { &*lpc55_pac::GPIO::ptr() };
-    // Turn on the RED LED on the xpresso board.
-    gpio.dir[1].write(|w| unsafe { w.bits(1 << 6) });
+
+    Board::indicate_fault(gpio);
 
     // Spin -- don't use BKPT here because if no debugger is attached it'll
     // escalate to another HardFault and lock the processor.
