@@ -10,6 +10,8 @@ cfg_if::cfg_if! {
         use stage0::bsp::lpc55xpresso::Board;
     } else if #[cfg(feature = "target-board-rot-carrier")] {
         use stage0::bsp::rot_carrier::Board;
+    } else if #[cfg(feature = "target-board-gimlet")] {
+        use stage0::bsp::gimlet::Board;
     }
 }
 

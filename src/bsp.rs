@@ -22,6 +22,7 @@
 // We may have to stop doing this eventually but it's nice for now.
 pub mod rot_carrier;
 pub mod lpc55xpresso;
+pub mod gimlet;
 
 use crate::SlotId;
 

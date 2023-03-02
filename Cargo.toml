@@ -9,6 +9,7 @@ default = ["target-board-rot-carrier"]
 
 target-board-lpc55xpresso = []
 target-board-rot-carrier = []
+target-board-gimlet = []
 
 allow-unsigned-images = []
 
