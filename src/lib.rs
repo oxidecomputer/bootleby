@@ -3,7 +3,7 @@
 pub mod romapi;
 pub mod sha256;
 
-use core::{sync::atomic::Ordering, ptr::addr_of, mem::size_of};
+use core::{sync::atomic::Ordering, mem::size_of};
 use zerocopy::{AsBytes, FromBytes};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
