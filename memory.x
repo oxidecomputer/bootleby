@@ -9,10 +9,11 @@ MEMORY {
     RAM (rw): ORIGIN = 0x30004000, LENGTH = 4K
 
     /*
-     * A/B images start at 32kiB just in case we outgrow our allocation.
+     * A/B images start at 64kiB for compatibility with the old bootloader's
+     * partition layout.
      */
-    IMAGE_A (r): ORIGIN = 0x10000000 + 32K, LENGTH = 299K
-    IMAGE_B (r): ORIGIN = 0x10000000 + 32K + 299K, LENGTH = 299K
+    IMAGE_A (r): ORIGIN = 0x10000000 + 64K, LENGTH = 256K
+    IMAGE_B (r): ORIGIN = 0x10000000 + 64K + 256K, LENGTH = 256K
 
     ROM_TABLE (r): ORIGIN = 0x130010f0, LENGTH = 64
 }
