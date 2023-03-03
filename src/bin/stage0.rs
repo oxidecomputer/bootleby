@@ -98,7 +98,14 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
 fn boot_into(
     header: &'static NxpImageHeader,
 ) -> ! {
-    //todo!("turn off peripherals");
+    // Detect the image's idea of its link address and use this to correct the
+    // VTOR as required.
+    let bit_28_set = header.reset_vector & 1 << 28 != 0;
+    let mask = if bit_28_set {
+        !0
+    } else {
+        !(1 << 28)
+    };
 
     // And away we go!
     //
@@ -204,7 +211,7 @@ fn boot_into(
             // things are going to get weird for you.
             in("r0") header.reset_vector,
             in("r1") header.initial_stack_pointer,
-            in("r2") &header as *const _ as u32,
+            in("r2") &header as *const _ as u32 & mask,
 
             options(noreturn),
         )

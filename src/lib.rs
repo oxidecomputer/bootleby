@@ -66,6 +66,20 @@ pub fn verify_image(
         .unwrap();
     let header = header.into_ref();
 
+    // The LPC55 aliases flash at base addresses, 0 and `0x1000_0000`. These
+    // locations differ in bit 28. The distinction is that the addresses with
+    // bit 28 set are, by default, set secure by the IDAU. We link stage0 to run
+    // from addresses with bit 28 set, but we will tolerate next-stage programs
+    // linked at either location.
+    //
+    // This means we have to be a smidge careful in testing things like the
+    // reset vector below, and that we should also be polite and set the VTOR
+    // the way the program expects when we launch.
+    //
+    // Figure out which alias the program was linked in using bit 28 of the
+    // reset vector.
+    let bit_28_set = header.reset_vector & 1 << 28 != 0;
+
     // For implementation convenience reasons below, we require that the image
     // size is a multiple of 4. The NXP ROM doesn't require this, so, we're
     // being slightly stricter than necessary.
@@ -151,23 +165,26 @@ pub fn verify_image(
                 return None;
             }
         }
-        // TODO do we need to check the execution address?
         // TODO do we care whether an image is XIP or not?
         if header.reset_vector & 1 == 0 {
             // This'll cause an immediate usage fault. Reject it.
             return None;
         }
         let image_addr_range = image.as_ptr_range();
+        // Update that addr range to reflect the image's expected link address.
+        // Since we start out with the bit set, we need to clear it if required.
+        let image_addr_range = if bit_28_set {
+            image_addr_range
+        } else {
+            let mask_without_28 = !(1 << 28);
+            let start = image_addr_range.start as u32 & mask_without_28;
+            let end = image_addr_range.end as u32 & mask_without_28;
+            start as *const _ .. end as *const _
+        };
 
         if !image_addr_range.contains(&((header.reset_vector & !1) as *const u32)) {
             // Reset vector points out of the image, which seems really darn
             // suspicious.
-            return None;
-        }
-
-        // We require the execution address to match the actual load address in
-        // all images, which is more strict than the ROM.
-        if header.image_execution_address != image.as_ptr() as u32 {
             return None;
         }
     }

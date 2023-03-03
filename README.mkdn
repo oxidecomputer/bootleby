@@ -107,7 +107,7 @@ lpc55_sign signed-image $STAGE0/demo/slot_a.bin \
     $STAGE0/demo/fake_certificate.der.crt \
     $STAGE0/demo/slot_a_signed.bin \
     /dev/null \
-    --address 0x10008000
+    --address 0x10000
 ```
 
 Then, wrap the slot B program in a CRC image without a signature:
@@ -115,7 +115,7 @@ Then, wrap the slot B program in a CRC image without a signature:
 ```
 lpc55_sign crc $STAGE0/demo/slot_b.bin \
     $STAGE0/demo/slot_b_crc.bin \
-    --address 0x10052c00
+    --address 0x50000
 ```
 
 You should now have `slot_a_signed.bin` and `slot_b_crc.bin` files in
@@ -148,9 +148,9 @@ in Flash. We can do that by running the following three commands (in
 `lpc55_support`):
 
 ```
-lpc55_flash /dev/ttyUSB0 write-memory 0x10000000 $STAGE0/stage0_signed.bin
-lpc55_flash /dev/ttyUSB0 write-memory 0x10008000 $STAGE0/demo/slot_a_signed.bin
-lpc55_flash /dev/ttyUSB0 write-memory 0x10052c00 $STAGE0/demo/slot_b_crc.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0 $STAGE0/stage0_signed.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0x10000 $STAGE0/demo/slot_a_signed.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0x50000 $STAGE0/demo/slot_b_crc.bin
 ```
 
 ### Trying it out and troubleshooting
@@ -189,22 +189,22 @@ erases, which means we can now erase/replace just one of our three programs.
 For stage0:
 
 ```
-lpc55_flash /dev/ttyUSB0 flash-erase-region 0x10000000 0x1000
-lpc55_flash /dev/ttyUSB0 write-memory 0x10000000 $STAGE0/stage0_signed.bin
+lpc55_flash /dev/ttyUSB0 flash-erase-region 0 0x10000
+lpc55_flash /dev/ttyUSB0 write-memory 0 $STAGE0/stage0_signed.bin
 ```
 
 For slot A:
 
 ```
-lpc55_flash /dev/ttyUSB0 flash-erase-region 0x10008000 0x1000
-lpc55_flash /dev/ttyUSB0 write-memory 0x10008000 $STAGE0/demo/slot_a_signed.bin
+lpc55_flash /dev/ttyUSB0 flash-erase-region 0x10000 0x40000
+lpc55_flash /dev/ttyUSB0 write-memory 0x10000 $STAGE0/demo/slot_a_signed.bin
 ```
 
 For slot B:
 
 ```
-lpc55_flash /dev/ttyUSB0 flash-erase-region 0x10052c00 0x1000
-lpc55_flash /dev/ttyUSB0 write-memory 0x10052c00 $STAGE0/demo/slot_b_crc.bin
+lpc55_flash /dev/ttyUSB0 flash-erase-region 0x50000 0x40000
+lpc55_flash /dev/ttyUSB0 write-memory 0x50000 $STAGE0/demo/slot_b_crc.bin
 ```
 
 This also gives you the opportunity to experiment with installing signed,
