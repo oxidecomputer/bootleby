@@ -29,9 +29,7 @@ This has been tested using the LPCXpresso55S69 board.
 
 ### Getting Started
 
-You will need the [`lpc55_support`] crate checked out. (At the time of this
-writing, you specifically need the `multiimage` branch. This may have been
-merged by the time you read this.)
+You will need the [`lpc55_support`] crate checked out.
 
 - Install a jumper on P1 (near the Debug Link USB connector) to break serial
   connection to the LPCLINK2 because I couldn't get it to work reliably.
@@ -182,9 +180,6 @@ If something goes wrong, you'll see one of two results:
 
 
 ### Rewriting just one image
-
-The `multiimage` branch extended `lpc55_flash` with the ability to do surgical
-erases, which means we can now erase/replace just one of our three programs.
 
 For stage0:
 
