@@ -5,6 +5,7 @@ pub mod sha256;
 pub mod bsp;
 
 use core::{sync::atomic::Ordering, mem::size_of};
+use hex_literal::hex;
 use zerocopy::{AsBytes, FromBytes};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -284,8 +285,52 @@ pub fn is_programmed(
     }
 }
 
-// Image regions, placed by the linker script.
 extern "C" {
+    // Image regions, placed by the linker script.
     static IMAGE_A: [u32; SLOT_SIZE_WORDS];
     static IMAGE_B: [u32; SLOT_SIZE_WORDS];
+
+    /// Transient override token location, placed by the linker script.
+    ///
+    /// This is `pub` so you can get to it from your binary, but is `static
+    /// mut`, so you'll need to come up with a way to access it safely (e.g.
+    /// prevent concurrency and aliasing).
+    pub static mut TRANSIENT_OVERRIDE: [u8; 32];
+}
+
+// Transient boot preference override support.
+//
+// There are two magic constants that, if deposited in a particular location in
+// memory, will affect our boot image selection. They are the SHA256 hashes of
+// two English sentences, because why not. See RFD374.
+pub const PREFER_SLOT_A: [u8; 32] = hex!(
+    "edb23f2e9b399c3d57695262f29615910ed10c8d9b261bfc2076b8c16c84f66d"
+);
+pub const PREFER_SLOT_B: [u8; 32] = hex!(
+    "70ed2914e6fdeeebbb02763b96da9faa0160b7fc887425f4d45547071d0ce4ba"
+);
+
+/// Inspects the contents of `buffer` to see if it contains one of the special
+/// byte sequences for overriding boot preference.
+///
+/// If it _does,_ it will be cleared, which is why this requires a `&mut`. If it
+/// contains other arbitrary data, it will be preserved.
+///
+/// This function doesn't implicitly access the `TRANSIENT_OVERRIDE` buffer
+/// because, to do so safely, we need to know about the processor's situation
+/// and interrupt handlers. You'll have to do it when you call.
+pub fn check_transient_override(buffer: &mut [u8; 32]) -> Option<SlotId> {
+    let choice = if buffer == &PREFER_SLOT_A {
+        Some(SlotId::A)
+    } else if buffer == &PREFER_SLOT_B {
+        Some(SlotId::B)
+    } else {
+        None
+    };
+
+    if choice.is_some() {
+        buffer.fill(0);
+    }
+
+    choice
 }

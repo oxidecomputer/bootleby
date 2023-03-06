@@ -16,6 +16,12 @@ MEMORY {
     IMAGE_B (r): ORIGIN = 0x10000000 + 64K + 256K, LENGTH = 256K
 
     ROM_TABLE (r): ORIGIN = 0x130010f0, LENGTH = 64
+
+    /*
+     * The transient override region is a fixed location in RAM, as specified
+     * by the design doc. It is outside of our BSS/data regions.
+     */
+    OVERRIDE (rw): ORIGIN = 0x3003ffe0, LENGTH = 32
 }
 
 /*
@@ -42,4 +48,8 @@ SECTIONS {
         IMAGE_B = .;
         . += LENGTH(IMAGE_A);
     } >IMAGE_B
+    .override ORIGIN(OVERRIDE) (NOLOAD): {
+        TRANSIENT_OVERRIDE = .;
+        . += LENGTH(OVERRIDE);
+    } >OVERRIDE
 } INSERT AFTER .uninit;

@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, Ordering, AtomicBool};
 
 use stage0::{romapi, sha256, SlotId, NxpImageHeader, bsp::Bsp};
 
@@ -43,21 +43,11 @@ fn main() -> ! {
         (Some(img), None) => img,
         (None, Some(img)) => img,
         (Some(img_a), Some(img_b)) => {
-            // If implemented, allow the override buttons on the eval board to
-            // win over all other mechanisms. (This will compile out for boards
-            // that have no override mechanism.)
-            if let Some(over) = Board::check_override(&p.GPIO) {
-                match over {
-                    SlotId::A => img_a,
-                    SlotId::B => img_b,
-                }
-            } else {
-                // TODO check for transient override
-                // TODO check CFPA persistent preference
-
-                // TODO one of those will succeed, eliminating the need for
-                // this:
-                img_a
+            // Defer to the choice/override mechanism if both images are good.
+            let choice = check_for_override(&p.GPIO);
+            match choice {
+                SlotId::A => img_a,
+                SlotId::B => img_b,
             }
         }
         _ => panic!(),
@@ -65,6 +55,47 @@ fn main() -> ! {
 
     sha256::update_cdi(&p.SYSCON, &p.HASHCRYPT, contents);
     boot_into(header)
+}
+
+fn check_for_override(gpio: &lpc55_pac::GPIO) -> SlotId {
+    // If implemented, allow the override buttons on the eval board to win over
+    // all other mechanisms. (This will compile out for boards that have no
+    // override mechanism.)
+    if let Some(over) = Board::check_override(gpio) {
+        return over;
+    }
+
+    // Transient RAM override gets next preference. We're going to be
+    // absurdly careful about accessing it for correctness reasons; this is not
+    // necessary given stage0's lack of concurrency but since this function can
+    // technically be called twice, we should be careful.
+    {
+        // Prevent calling this function concurrently.
+        static OVERRIDE_CHECKED: AtomicBool = AtomicBool::new(false);
+        if OVERRIDE_CHECKED.swap(true, Ordering::SeqCst) {
+            // Second time through this function, or concurrent invocation!
+            panic!();
+        }
+
+        // Transient override token location, placed by the linker script, and
+        // only visible to the code below.
+        extern "C" {
+            static mut TRANSIENT_OVERRIDE: [u8; 32];
+        }
+
+        // Safety: the exclusivity check above is more than enough to make
+        // obtaining a reference to this variable _once_ safe:
+        let buffer = unsafe { &mut TRANSIENT_OVERRIDE };
+
+        if let Some(over) = stage0::check_transient_override(buffer) {
+            return over;
+        }
+    }
+
+    // Finally, persistent preference in the CFPA. This will always choose one
+    // or the other.
+    // TODO: implement persistent preference in the CFPA.
+    SlotId::A
 }
 
 #[panic_handler]
