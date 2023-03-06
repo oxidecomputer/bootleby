@@ -15,6 +15,13 @@ MEMORY {
     IMAGE_A (r): ORIGIN = 0x10000000 + 64K, LENGTH = 256K
     IMAGE_B (r): ORIGIN = 0x10000000 + 64K + 256K, LENGTH = 256K
 
+    /*
+     * We only model the ping-pong (committed) pages of the NXP CFPA, not the
+     * scratch page that appears 512 bytes lower, because we don't write
+     * the CFPA. If that _changes_ we will need to adjust this.
+     */
+    CFPA (r): ORIGIN = 0x1009E000, LENGTH = 1024
+
     ROM_TABLE (r): ORIGIN = 0x130010f0, LENGTH = 64
 
     /*
@@ -52,4 +59,8 @@ SECTIONS {
         TRANSIENT_OVERRIDE = .;
         . += LENGTH(OVERRIDE);
     } >OVERRIDE
+    .cfpa ORIGIN(CFPA) (NOLOAD): {
+        CFPA = .;
+        . += LENGTH(CFPA);
+    } >CFPA
 } INSERT AFTER .uninit;

@@ -251,6 +251,34 @@ pub struct NxpImageHeader {
     pub image_execution_address: u32,
 }
 
+#[derive(Copy, Clone, Debug, AsBytes, FromBytes)]
+#[repr(C)]
+pub struct CfpaPage {
+    // Fields defined by NXP:
+
+    pub header: u32,
+    pub monotonic_version: u32,
+    _fields_we_do_not_use: [u32; 10],
+    _prince_ivs: [[u32; 14]; 3],
+    _nxp_reserved: [u32; 10],
+
+    // We are now at offset 0x100.
+
+    // Fields defined by us:
+
+    /// Flags controlling persistent boot behavior. Currently only bit 0 is
+    /// meaningful.
+    ///
+    /// 0 means prefer slot A; 1 means prefer slot B.
+    ///
+    /// Top bits are ignored.
+    pub boot_flags: u32,
+
+    // Padding to describe remainder of region -- you will need to adjust this
+    // down if you add fields.
+    _padding: [u8; 252],
+}
+
 /// Checks if the page containing `word_number` has been programmed since it was
 /// last erased. Since reading from an erased page will fault, it's important to
 /// do this before accessing any page that is possibly erased.
@@ -289,6 +317,9 @@ extern "C" {
     // Image regions, placed by the linker script.
     static IMAGE_A: [u32; SLOT_SIZE_WORDS];
     static IMAGE_B: [u32; SLOT_SIZE_WORDS];
+
+    // CFPA ping-pong pages, placed by the linker script.
+    static CFPA: [CfpaPage; 2];
 }
 
 // Transient boot preference override support.
@@ -326,4 +357,28 @@ pub fn check_transient_override(buffer: &mut [u8; 32]) -> Option<SlotId> {
     }
 
     choice
+}
+
+/// Reads the committed pages (ping-pong pages) of the CFPA, determines which
+/// represents newer content, and returns a reference to it.
+///
+/// If the two are tied -- they have the same monotonic version, which should
+/// only happen on a factory-fresh part -- we arbitrarily choose the first page.
+pub fn read_cfpa() -> &'static CfpaPage {
+    // Safety: Rust is concerned about this because we've marked the CFPA array
+    // as extern "C", and this means a C program might be sneaking around
+    // violating our assumptions. In our case, this is not true -- we only
+    // marked it extern "C" because the final location is decided by the linker
+    // script, and the contents aren't described by this program. So it's always
+    // ok to do this:
+    let cfpa = unsafe { &CFPA };
+
+    // It's not clear how the ROM handles integer wraparound if the CFPA version
+    // gets high enough -- it seems unlikely to occur in practice. So, we will
+    // use non-wrapping comparison here for the time being.
+    if cfpa[0].monotonic_version < cfpa[1].monotonic_version {
+        &cfpa[1]
+    } else {
+        &cfpa[0]
+    }
 }

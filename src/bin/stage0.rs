@@ -94,8 +94,12 @@ fn check_for_override(gpio: &lpc55_pac::GPIO) -> SlotId {
 
     // Finally, persistent preference in the CFPA. This will always choose one
     // or the other.
-    // TODO: implement persistent preference in the CFPA.
-    SlotId::A
+    let cfpa = stage0::read_cfpa();
+    if cfpa.boot_flags & 1 == 0 {
+        SlotId::A
+    } else {
+        SlotId::B
+    }
 }
 
 #[panic_handler]
