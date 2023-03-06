@@ -289,13 +289,6 @@ extern "C" {
     // Image regions, placed by the linker script.
     static IMAGE_A: [u32; SLOT_SIZE_WORDS];
     static IMAGE_B: [u32; SLOT_SIZE_WORDS];
-
-    /// Transient override token location, placed by the linker script.
-    ///
-    /// This is `pub` so you can get to it from your binary, but is `static
-    /// mut`, so you'll need to come up with a way to access it safely (e.g.
-    /// prevent concurrency and aliasing).
-    pub static mut TRANSIENT_OVERRIDE: [u8; 32];
 }
 
 // Transient boot preference override support.
