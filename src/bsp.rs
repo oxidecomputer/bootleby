@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 //! Types and hooks for implementing Board Support Packages (BSPs) for stage0.
 //!
 //! The stage0 BSP requirements are very simple, since for the most part, stage0

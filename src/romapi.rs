@@ -2,6 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+//! Minimal LPC55 ROM API interface library.
+//!
+//! This is factored (and in some cases copy-pasted) out of our support library
+//! in Hubris, because this crate should not depend on Hubris, and also wants to
+//! make slightly different implementation decisions for compactness/simplicity.
+
 use num_derive::FromPrimitive;
 
 #[repr(C)]
@@ -73,10 +79,17 @@ pub struct BootloaderTree {
 }
 
 extern "C" {
+    /// Root node of tree of tables describing the ROM interface, placed at the
+    /// right place in ROM by the linker script.
     static BOOTLOADER_TREE: BootloaderTree;
 }
 
 pub fn bootloader_tree() -> &'static BootloaderTree {
+    // Safety: this is unsafe because of extern "C"; since we know it's in ROM
+    // (thanks, linker!) we're not worried about modifications behind our
+    // backs[*] so this is safe.
+    //
+    // [*] ignore the part where NXP included a ROM patcher
     unsafe {
         &BOOTLOADER_TREE
     }

@@ -73,6 +73,12 @@ measure.
 The `main` branch is protected, code must pass the build before being pushed
 there.
 
+This code is structured as a lib crate (most of the files under `src/`) so that
+it can be reused by both the real production stage0 binary, and tests.
+Production stage0 lives at `src/bin/stage0.rs`; other files in `src/bin` are
+test programs. Ideally, more of the code would move into the lib and get tested;
+the only parts that really can't are the ones that boot into the chosen image.
+
 ## Demo using fake keys and signed images
 
 This has been tested using the LPCXpresso55S69 board.

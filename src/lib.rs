@@ -1,3 +1,16 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+//! LPC55 multi-image verified bootloader: the crate
+//!
+//! This crate provides most of the implementation for the "stage0" multi-image
+//! bootloader, factored out of the binary itself so that it can be tested.
+//!
+//! In general, code should go here rather than into `stage0` directly, except
+//! for the specific bits responsible for activating / launching a new image --
+//! those are hard to test separately from `stage0`.
+
 #![no_std]
 
 pub mod romapi;
@@ -6,28 +19,65 @@ pub mod bsp;
 
 use core::{sync::atomic::Ordering, mem::size_of};
 use hex_literal::hex;
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes, FromBytes, LayoutVerified};
 
+/// Names for our two firmware slots. Used whenever we need to pass around a
+/// token identifying one slot or the other.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum SlotId { A, B }
 
-/// Size of each flash image slot in words (which are 32 bits each). The ROM
-/// requires flash images to be 32-bit aligned, and it's easier for us if they
-/// are, too, so we'll just deal in words.
-pub const SLOT_SIZE_WORDS: usize = 256 * 1024 / 4;
+/// Size of each flash image slot in 32-bit words. The ROM requires flash images
+/// to be 32-bit aligned, and it's easier for us if they are, too, so we'll just
+/// deal in words. (This is also why the "words" constant is the primary one
+/// rather than bytes.)
+///
+/// (Note that the flash controller also uses the term "word" to refer to a
+/// larger chunk of data; this code consistently uses "fword" for flash words.)
+///
+/// Changing this constant requires updates to the linker script for both stage0
+/// and any second-stage programs being launched.
+pub const SLOT_SIZE_WORDS: usize = 256 * 1024 / size_of::<u32>();
 
-/// Equivalent in bytes.
-pub const SLOT_SIZE_BYTES: usize = SLOT_SIZE_WORDS * 4;
+/// Equivalent in bytes. Please do not change separately from `SLOT_SIZE_WORDS`
+/// because that would be confusing and rude.
+pub const SLOT_SIZE_BYTES: usize = SLOT_SIZE_WORDS * size_of::<u32>();
+
+/// Number of bytes per fword (flash word). Specified by hardware, do not
+/// change.
+const BYTES_PER_FWORD: usize = 16;
+
+/// Sometimes, just _sometimes,_ Rust's insistence on distinguishing usize from
+/// u32 on a 32-bit platform is annoying.
+const BYTES_PER_FWORD_U32: u32 = BYTES_PER_FWORD as u32;
+
+/// Number of fwords per programmable flash page (512 bytes).
+const FWORDS_PER_PAGE: usize = 512 / BYTES_PER_FWORD;
+
+/// Mask of bits that are actually decoded by the flash controller. The flash
+/// controller receives 27-bit addresses from the bus, but only decodes the
+/// bottom 18 bits, with the result that flash content is repeated many times.
+const FLASH_DECODE_MASK: u32 = (1 << 18) - 1;
 
 /// Verifies an image and, if successful, returns two references that alias one
 /// another:
 ///
 /// - The first is a reference to the NXP image header at the start of the slot,
 ///   as a way of proving that there's enough data to contain a valid image
-///   header.
+///   header. Any further verification, or access to the reset vector etc.,
+///   should use this reference to avoid extra bounds checks.
+///
 /// - The second is the entire image, pruned to its recorded size, as u32s, to
 ///   prove that it's 4-byte-aligned and a whole number of words. The first 16
 ///   words of this slice are the header.
+///
+/// This API design might be surprising, but it's deliberate.
+///
+/// 1. Keeping access to the `IMAGE_A`/`IMAGE_B` statics inside this function
+///    (rather than letting you pass a pointer) ensures that it's always dealing
+///    with a controlled, aligned flash image, and not some random data.
+/// 2. Returning aliased references avoids generating bounds checks in the
+///    caller. If we could return a type "slice of u32s of at least 16 entries,"
+///    we would, but there's no such type.
 #[inline(never)]
 pub fn verify_image(
     flash: &lpc55_pac::FLASH,
@@ -43,12 +93,23 @@ pub fn verify_image(
     // 3. It is in flash (ensured by linker script).
     // 4. It refers to one of the firmware slots (ensured by linker script).
     let image = match which {
+        // Safety: access to this static is unsafe because it's extern "C", and
+        // so the compiler is nervous that some other chunk of code is monkeying
+        // with it behind our backs. In our case, this is not the case; it's
+        // only extern "C" to make sure we can correctly define it in the linker
+        // script.
         SlotId::A => unsafe { &IMAGE_A },
+        // Safety: same
         SlotId::B => unsafe { &IMAGE_B },
     };
 
-    // Convert the image address to a Flash word number.
-    let start_fword = (image.as_ptr() as u32 / 16) & ((1 << 18) - 1);
+    // Convert the image address to an fword (flash word) number. Because flash
+    // starts at the bottom of the address space, this is a matter of dividing
+    // the image base address by the size of an fword. Because flash is aliased
+    // twice, we also mask off the top bits, which aren't decoded by the flash
+    // controller interface.
+    let start_fword =
+        (image.as_ptr() as u32 / BYTES_PER_FWORD as u32) & FLASH_DECODE_MASK;
     // Verify that the _first_ page of the image has been programmed. Without
     // this, we can't load the image size.
     if !is_programmed(flash, start_fword) {
@@ -57,23 +118,31 @@ pub fn verify_image(
     }
 
     // Do not permit the compiler to hoist any accesses through `image` above
-    // that check.
+    // that check. This is not a memory-safety-in-the-Rust sense thing: if an
+    // access through `image` were hoisted above the erase check, we'd just
+    // crash. But we don't want to crash.
     core::sync::atomic::compiler_fence(Ordering::SeqCst);
 
     // Okay, now we're willing to interact with the actual array.
-    // Attempt to pun the first 32 bytes as an image header. This doesn't
+    //
+    // Attempt to pun the first 64 bytes as an image header. This doesn't
     // dereference the reference yet, but we get the following checks for free
-    // from this line:
-    // - Image is 4-byte aligned (we get this from the use of u32 anyway)
-    // - Image is large enough to contain the image header.
-    let (header, _) = zerocopy::LayoutVerified::<_, NxpImageHeader>::new_from_prefix(image.as_bytes())
+    // from `zerocopy`:
+    // - Image is 4-byte aligned (we get this from the use of u32 anyway, but it
+    //   is re-checked)
+    // - Image is large enough to contain the image header as a prefix.
+    let (header, _) = 
+        LayoutVerified::<_, NxpImageHeader>::new_from_prefix(image.as_bytes())
         .unwrap();
+    // We don't need to carry the properties of the LayoutVerified type, and
+    // doing so makes certain things awkward; just a reference please.
     let header = header.into_ref();
 
-    // The LPC55 aliases flash at base addresses, 0 and `0x1000_0000`. These
-    // locations differ in bit 28. The distinction is that the addresses with
-    // bit 28 set are, by default, set secure by the IDAU. We link stage0 to run
-    // from addresses with bit 28 set, but we will tolerate next-stage programs
+    // The LPC55 aliases flash in two places, 0 and `0x1000_0000`. These
+    // locations differ in bit 28, which is not actually passed to the flash
+    // controller. The distinction is that the addresses with bit 28 set are, by
+    // default, set secure-only by the IDAU. We link stage0 to run from
+    // addresses with bit 28 set, but we will tolerate next-stage programs
     // linked at either location.
     //
     // This means we have to be a smidge careful in testing things like the
@@ -84,40 +153,49 @@ pub fn verify_image(
     // reset vector.
     let bit_28_set = header.reset_vector & 1 << 28 != 0;
 
-    // For implementation convenience reasons below, we require that the image
-    // size is a multiple of 4. The NXP ROM doesn't require this, so, we're
-    // being slightly stricter than necessary.
+    // Start processing the header's image length field.
+    //
+    // For implementation convenience reasons below, we require that the image's
+    // internally stated size is a multiple of 4. The NXP ROM doesn't require
+    // this, so, we're being slightly stricter than necessary.
     if header.image_length % 4 != 0 {
         return None;
     }
     // The claimed length must be large enough to contain the header we're
-    // already using.
+    // already using. This is the practical minimum length for an NXP-format
+    // image, anything less is likely garbage.
     if (header.image_length as usize) < size_of::<NxpImageHeader>() {
         return None;
     }
 
     // Slice off the unused portion of the image while simultaneously checking
-    // that the image length fits within the slot. This avoids a bunch of checks
-    // below.
+    // that the image length fits within the slot (since `image` has the length
+    // of the slot). This avoids a bunch of checks below.
     let image = image.get(..header.image_length as usize / 4)?;
 
-    // Round up to a whole number of flash words (128 bits / 16 bytes each).
+    // Round up to a whole number of fwords.
     //
-    // Rustc likes to insert an overflow check here. We know this isn't going to
-    // overflow because `image_length / 4 < SLOT_LEN_WORDS`, and so
-    // `image_length` is significantly smaller than `u32::MAX`. So, we override
-    // the overflow check.
-    let image_length_fwords = header.image_length.wrapping_add(15) / 16;
+    // Rustc likes to insert an overflow check here on the add. We know this
+    // isn't going to overflow because `image_length / 4 < SLOT_LEN_WORDS`, and
+    // so `image_length` is significantly smaller than `u32::MAX`. So, we
+    // override the overflow check.
+    let image_length_fwords =
+        header.image_length.wrapping_add(BYTES_PER_FWORD_U32 + 1)
+            / BYTES_PER_FWORD_U32;
 
     // Verify that every. single. page. of the image is readable, because the
     // ROM doesn't do this despite NXP suggesting it in their app notes.
-    for w in start_fword + 1 .. start_fword + image_length_fwords {
+    //
+    // Skip the first page because we checked it above.
+    let fword_range = start_fword .. start_fword + image_length_fwords;
+    for w in fword_range.step_by(FWORDS_PER_PAGE).skip(1) {
         if !is_programmed(flash, w) {
             return None;
         }
     }
 
-    // for good measure:
+    // Ensure that our call to ROM, below, happens after our program checks,
+    // above. Necessary? Almost certainly not; emphasis on the "almost."
     core::sync::atomic::compiler_fence(Ordering::SeqCst);
 
     // Because of our past experience with the implementation quality of the
@@ -137,7 +215,7 @@ pub fn verify_image(
                 // CRC checksum used by the ROM. It'd be great if the ROM would
                 // check this for us, wouldn't it?
                 //
-                // It won't though.
+                // It won't though; there's no entry point for it.
 
                 // We have already verified that image_length seems plausible.
 
@@ -155,6 +233,8 @@ pub fn verify_image(
                 crc.update(image[size_of::<NxpImageHeader>() / 4..].as_bytes());
 
                 let computed_crc = crc.finish();
+                // The CRC format (ab)uses the `type_specific_header` field to
+                // store the CRC.
                 let stored_crc = header.type_specific_header;
 
                 if computed_crc != stored_crc {
@@ -168,23 +248,28 @@ pub fn verify_image(
                 return None;
             }
         }
-        // TODO do we care whether an image is XIP or not?
+
+        // Verify that the reset vector is a valid Thumb-2 function pointer.
         if header.reset_vector & 1 == 0 {
             // This'll cause an immediate usage fault. Reject it.
             return None;
         }
-        let image_addr_range = image.as_ptr_range();
-        // Update that addr range to reflect the image's expected link address.
-        // Since we start out with the bit set, we need to clear it if required.
+
+        // Compute the pointer range corresponding to the image, taking its bit
+        // 28 preference into account.
         let image_addr_range = if bit_28_set {
-            image_addr_range
+            image.as_ptr_range()
         } else {
+            let r = image.as_ptr_range();
             let mask_without_28 = !(1 << 28);
-            let start = image_addr_range.start as u32 & mask_without_28;
-            let end = image_addr_range.end as u32 & mask_without_28;
+            let start = r.start as u32 & mask_without_28;
+            let end = r.end as u32 & mask_without_28;
             start as *const _ .. end as *const _
         };
 
+        // Verify that the reset vector points within the image. Without doing
+        // this, you could admit a signed image that maliciously jumps into the
+        // other, unverified image slot.
         if !image_addr_range.contains(&((header.reset_vector & !1) as *const u32)) {
             // Reset vector points out of the image, which seems really darn
             // suspicious.
@@ -198,6 +283,8 @@ pub fn verify_image(
         // checked the CRC above.
         return Some((header, image));
     }
+
+    // Time to check the signatures!
 
     let bt = romapi::bootloader_tree();
     let auth = bt.skboot.skboot_authenticate;
@@ -240,6 +327,7 @@ pub fn verify_image(
     }
 }
 
+/// Layout of the NXP image header, which is also the ARMv8-M vector table.
 #[derive(Copy, Clone, Debug, AsBytes, FromBytes)]
 #[repr(C)]
 pub struct NxpImageHeader {
@@ -253,6 +341,11 @@ pub struct NxpImageHeader {
     pub image_execution_address: u32,
 }
 
+/// Layout of the Customer Field Programmble Area structure in Flash.
+///
+/// This struct should be exactly 512 bytes. If you change it such that its size
+/// is no longer 512 bytes, it will not compromise security, but stage0 will
+/// panic while checking the persistent settings.
 #[derive(Copy, Clone, Debug, AsBytes, FromBytes)]
 #[repr(C)]
 pub struct CfpaPage {
@@ -292,13 +385,23 @@ pub fn is_programmed(
     flash: &lpc55_pac::FLASH,
     word_number: u32,
 ) -> bool {
+    // Note: this implementation drives the flash controller directly rather
+    // than setting up and calling the ROM Flash API. It turns out to be
+    // substantially smaller to do it ourselves!
+
     // Issue a blank-check command. There's a pseudocode example of this in UM
     // 5.7.11.
     //
     // Since the STOPA is _inclusive_ we can use the same address for both.
+    //
+    // Safety: this is unsafe only because the register is incompletely modeled
+    // in the PAC.
     flash.int_clr_status.write(|w| unsafe { w.bits(0xF) });
+    // Safety: same
     flash.starta.write(|w| unsafe { w.starta().bits(word_number) });
+    // Safety: same
     flash.stopa.write(|w| unsafe { w.stopa().bits(word_number) });
+    // Safety: same
     flash.cmd.write(|w| unsafe { w.cmd().bits(5) });
 
     while !flash.int_status.read().done().bit() {
@@ -340,7 +443,9 @@ pub const PREFER_SLOT_B: [u8; 32] = hex!(
 /// byte sequences for overriding boot preference.
 ///
 /// If it _does,_ it will be cleared, which is why this requires a `&mut`. If it
-/// contains other arbitrary data, it will be preserved.
+/// contains other arbitrary data, it will be preserved. This is arguably an odd
+/// division of responsibilities, but it makes our standard use case --
+/// processing a boot command _exactly once_ -- far harder to screw up.
 ///
 /// This function doesn't implicitly access the `TRANSIENT_OVERRIDE` buffer
 /// because, to do so safely, we need to know about the processor's situation

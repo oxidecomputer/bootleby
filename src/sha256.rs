@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 //! Simple driver for the SHA256 hardware in the LPC55S, aimed at the specific
 //! use case of measuring an image and folding it into a DICE CDI.
 //!
@@ -6,6 +10,8 @@
 //! results for the subset of test vectors in RFC 4231 that are consistent with
 //! the system's limitations (below). (As well as some manually generated test
 //! cases.)
+//!
+//! See `src/bin/sha_tests.rs` for the test suite.
 //!
 //! # Assumptions and limitations
 //!
@@ -16,7 +22,7 @@
 //!
 //! - Input is in units of 32-bit words only. Because of how SHA padding works,
 //!   this means you can't compute the correct SHA256 for (say) a 3-byte string.
-//!   However, the types used in the SHA APIs will also prevent you from
+//!   However, the types used in these APIs will also prevent you from
 //!   _attempting_ to compute that SHA256, so this seems ok.
 //!
 //! - We're doing SHA256 _only,_ so block and hash sizes are fixed by compile

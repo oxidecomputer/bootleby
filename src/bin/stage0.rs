@@ -1,3 +1,13 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+//! The actual multi-image bootloader program.
+//!
+//! This contains the entry point and support code for the bootloader. It relies
+//! on the lib crate for most of the heavy lifting; the code here is dedicated
+//! to the particular runtime requirements and setup of the bootloader.
+
 #![no_std]
 #![no_main]
 
@@ -5,6 +15,7 @@ use core::sync::atomic::{compiler_fence, Ordering, AtomicBool};
 
 use stage0::{romapi, sha256, SlotId, NxpImageHeader, bsp::Bsp};
 
+// Select the appropriate BSP type as `Board`
 cfg_if::cfg_if! {
     if #[cfg(feature = "target-board-lpc55xpresso")] {
         use stage0::bsp::lpc55xpresso::Board;
@@ -57,6 +68,14 @@ fn main() -> ! {
     boot_into(header)
 }
 
+/// Runs through all the image selection tiebreak mechanisms until one makes a
+/// decision.
+///
+/// Concretely, the order is:
+///
+/// - Override button, if implemented by the BSP.
+/// - Transient RAM preference override, if present.
+/// - Persistent preference in CFPA.
 fn check_for_override(gpio: &lpc55_pac::GPIO) -> SlotId {
     // If implemented, allow the override buttons on the eval board to win over
     // all other mechanisms. (This will compile out for boards that have no
