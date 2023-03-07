@@ -1,17 +1,68 @@
-# Sketching on an alternate stage0
+# The Currently Nameless LPC55 Bootloader
 
-This is a work in progress.
+Status: approaching feature-complete for now.
 
-This is an exercise in reducing the scope of the LPC55 "stage0" bootloader that
-implements redundant firmware image storage on the RoT.
+This is a reimplementation of Oxide's "stage0" LPC55 bootloader that aims to be
+more minimal and general.
+
+The reason we need a bootloader is due to a limitation in the chip's boot ROM:
+it will perform verified boot against a _single_ location in flash (address
+zero). We need A/B firmware images so that we can do an in-system upgrade
+safely, but want to retain verified boot. So, this bootloader extends the ROM's
+verified boot chain of trust to one of two possible firmware images, depending
+on the results of signature checks and some minimal online configuration.
+
+This program refers to itself internally as "stage0" because it is the first
+stage of Oxide's RoT boot process, but it probably needs an actual name.
+
+## Really minimal user manual
+
+This will not cover how to get verified boot working on an LPC55; you need to
+have already installed your key table hash in the CMPA, etc.
+
+`stage0` should be built and signed and deposited at the start of flash. By
+default, it structures the rest of flash into two image slots, each 256 kiB in
+length. The first starts at `0x1_0000`, and the second at `0x5_0000`.
+
+`stage0` will do exactly the following:
+
+- Check each firmware slot to see if it contains a valid, fully programmed,
+  signed image. The ROM signature check logic is reused, though we perform some
+  checks before it to work around some crash-level bugs it contains (sigh).
+
+- If only one slot is valid, boot it (i.e. load its initial stack pointer,
+  configure its vector table, and jump to its reset vector).
+
+- If two slots are valid, we have a choice to make. The following factors are
+  used to break the tie, in this order:
+  - If implemented on the target board, an override button.
+  - A location in RAM is checked for a "transient boot override" command, which
+    will boot into a particular slot exactly once and then be overwritten.
+  - The LSB of the word at offset `0x100` in the most recently written CFPA page
+    is the last option. If 0, slot A is booted; if 1, slot B is booted.
+
+`stage0` does not stay resident or require any ongoing resources once it jumps
+into your program. This means there's no way to "call into" `stage0` other than
+rebooting.
+
 
 ## Building
 
-`cargo build` will do. Add `--release` if you're evaluating sizes.
+`cargo build --release` will build for the default target board (which is an
+eval board you probably don't have).
+
+To change boards, check `Cargo.toml` for the various `target-board-*` features,
+and pass one like this:
+
+`cargo build --release --no-default-features --features target-board-lpcxpresso`
+
+To enable booting unsigned-but-CRC'd images, add the `allow-unsigned-images`
+feature.
 
 ## Testing
 
-No tests yet.
+We have some minimal test suites in the form of other binaries in `src/bin`.
+Currently, this only covers the crypto hardware drivers.
 
 ## Dev workflow
 
@@ -20,8 +71,7 @@ sure you've installed the one corresponding to the pinned toolchain, for good
 measure.
 
 The `main` branch is protected, code must pass the build before being pushed
-there. Currently reviews aren't required because I'm iterating and intend to get
-eyes on the _whole thing_ later.
+there.
 
 ## Demo using fake keys and signed images
 
@@ -57,7 +107,7 @@ cargo run --bin lpc55_flash /dev/ttyUSB0 ping
 In _this_ repo, run
 
 ```
-cargo build --release
+cargo build --release --no-default-features --features target-board-lpcxpresso
 arm-none-eabi-objcopy -O binary target/thumbv8m.main-none-eabihf/release/stage0 stage0.bin
 ```
 
