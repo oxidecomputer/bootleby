@@ -246,7 +246,7 @@ fn boot_into(
             // things are going to get weird for you.
             in("r0") header.reset_vector,
             in("r1") header.initial_stack_pointer,
-            in("r2") &header as *const _ as u32 & mask,
+            in("r2") header as *const _ as u32 & mask,
 
             options(noreturn),
         )
