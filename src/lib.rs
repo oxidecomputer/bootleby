@@ -14,7 +14,10 @@ pub enum SlotId { A, B }
 /// Size of each flash image slot in words (which are 32 bits each). The ROM
 /// requires flash images to be 32-bit aligned, and it's easier for us if they
 /// are, too, so we'll just deal in words.
-pub const SLOT_SIZE_WORDS: usize = 299 * 1024 / 4;
+pub const SLOT_SIZE_WORDS: usize = 256 * 1024 / 4;
+
+/// Equivalent in bytes.
+pub const SLOT_SIZE_BYTES: usize = SLOT_SIZE_WORDS * 4;
 
 /// Verifies an image and, if successful, returns two references that alias one
 /// another:
@@ -124,9 +127,8 @@ pub fn verify_image(
         match header.image_type {
             4 => {
                 // Validate that the secondary header offset is in bounds.
-                // TODO: we can do better than this:
                 let header_offset = header.type_specific_header;
-                if header_offset >= SLOT_SIZE_WORDS as u32 {
+                if header_offset >= SLOT_SIZE_BYTES as u32 {
                     return None;
                 }
             }
