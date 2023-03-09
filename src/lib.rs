@@ -345,7 +345,8 @@ pub struct NxpImageHeader {
 ///
 /// This struct should be exactly 512 bytes. If you change it such that its size
 /// is no longer 512 bytes, it will not compromise security, but stage0 will
-/// panic while checking the persistent settings.
+/// panic while checking the persistent settings (and with any luck the static
+/// assertion below will fire before you hit the panic).
 #[derive(Copy, Clone, Debug, AsBytes, FromBytes)]
 #[repr(C)]
 pub struct CfpaPage {
@@ -373,6 +374,10 @@ pub struct CfpaPage {
     // down if you add fields.
     _padding: [u8; 252],
 }
+
+// It's really quite important that the CFPA data structure be exactly the size
+// of a flash page, 512 bytes.
+static_assertions::const_assert_eq!(size_of::<CfpaPage>(), 512);
 
 /// Checks if the page containing `word_number` has been programmed since it was
 /// last erased. Since reading from an erased page will fault, it's important to
