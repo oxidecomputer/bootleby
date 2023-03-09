@@ -23,6 +23,7 @@ hex-literal = "0.3.4"
 lpc55-pac = { version = "0.5.0", features = ["rt"] }
 num-derive = { version = "0.3.3", default-features = false }
 num-traits = { version = "0.2.15", default-features = false }
+static_assertions = "1.1.0"
 tinycrc = {path = "tinycrc"}
 zerocopy = { version = "0.6.1", default-features = false }
 
