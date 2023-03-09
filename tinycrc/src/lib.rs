@@ -47,8 +47,8 @@ impl Crc32 {
     pub fn update(&mut self, data: &[u8]) {
         if self.reflect_in {
             for &byte in data {
-                let v = self.value ^ u32::from(byte);
-                self.value = crc32_reflect(self.poly, v) ^ (self.value >> 8);
+                let v = (self.value >> 24) ^ u32::from(byte.reverse_bits());
+                self.value = crc32(self.poly, v) ^ (self.value << 8);
             }
         } else {
             for &byte in data {
@@ -60,18 +60,11 @@ impl Crc32 {
 
     /// Performs any final computations required and returns the computed CRC32.
     pub fn finish(mut self) -> u32 {
-        if self.reflect_in ^ self.reflect_out {
+        if self.reflect_out {
             self.value = self.value.reverse_bits();
         }
         self.value ^ self.xorout
     }
-}
-
-fn crc32_reflect(poly: u32, mut value: u32) -> u32 {
-    for _ in 0..8 {
-        value = (value >> 1) ^ ((value & 1) * poly);
-    }
-    value
 }
 
 fn crc32(poly: u32, mut value: u32) -> u32 {
@@ -107,6 +100,70 @@ mod tests {
         let result = mine.finish();
 
         let good = crc::Crc::<u32>::new(&crc::CRC_32_MPEG_2);
+        let mut good = good.digest();
+        good.update(fixture);
+        let correct_result = good.finalize();
+
+        assert_eq!(result, correct_result);
+    }
+
+    #[test]
+    fn test_refin() {
+        let fixture = b"the quick brown fox jumps over the lazy dog";
+
+        pub const CRC_32_MPEG_2_REFIN: Algorithm<u32> = Algorithm {
+            refin: true,
+            ..crc_catalog::CRC_32_MPEG_2
+        };
+
+        let mut mine = Crc32::new(&CRC_32_MPEG_2_REFIN);
+        mine.update(fixture);
+        let result = mine.finish();
+
+        let good = crc::Crc::<u32>::new(&CRC_32_MPEG_2_REFIN);
+        let mut good = good.digest();
+        good.update(fixture);
+        let correct_result = good.finalize();
+
+        assert_eq!(result, correct_result);
+    }
+
+    #[test]
+    fn test_refout() {
+        let fixture = b"the quick brown fox jumps over the lazy dog";
+
+        pub const CRC_32_MPEG_2_REFOUT: Algorithm<u32> = Algorithm {
+            refout: true,
+            ..crc_catalog::CRC_32_MPEG_2
+        };
+
+        let mut mine = Crc32::new(&CRC_32_MPEG_2_REFOUT);
+        mine.update(fixture);
+        let result = mine.finish();
+
+        let good = crc::Crc::<u32>::new(&CRC_32_MPEG_2_REFOUT);
+        let mut good = good.digest();
+        good.update(fixture);
+        let correct_result = good.finalize();
+
+        assert_eq!(result, correct_result);
+    }
+
+    #[test]
+    fn test_refin_refout() {
+        let fixture = b"the quick brown fox jumps over the lazy dog";
+
+        pub const CRC_32_MPEG_2_REFOUT: Algorithm<u32> = Algorithm {
+            refin: true,
+            refout: true,
+            ..crc_catalog::CRC_32_MPEG_2
+        };
+
+        let mut mine = Crc32::new(&CRC_32_MPEG_2_REFOUT);
+        mine.update(fixture);
+        let result = mine.finish();
+
+        let good = crc::Crc::<u32>::new(&CRC_32_MPEG_2_REFOUT);
         let mut good = good.digest();
         good.update(fixture);
         let correct_result = good.finalize();
