@@ -24,6 +24,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46afbd2983a5d5a7bd740ccb198caf5b82f45c40c09c0eed36052d91cb92e719"
 
 [[package]]
+name = "bootleby"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "cortex-m",
+ "cortex-m-rt",
+ "crc",
+ "crc-catalog",
+ "hex-literal",
+ "lpc55-pac",
+ "num-derive",
+ "num-traits",
+ "static_assertions",
+ "tinycrc",
+ "zerocopy",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -185,24 +203,6 @@ name = "semver-parser"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
-
-[[package]]
-name = "stage0"
-version = "0.1.0"
-dependencies = [
- "cfg-if",
- "cortex-m",
- "cortex-m-rt",
- "crc",
- "crc-catalog",
- "hex-literal",
- "lpc55-pac",
- "num-derive",
- "num-traits",
- "static_assertions",
- "tinycrc",
- "zerocopy",
-]
 
 [[package]]
 name = "static_assertions"

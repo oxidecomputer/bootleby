@@ -2,20 +2,20 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Types and hooks for implementing Board Support Packages (BSPs) for stage0.
+//! Types and hooks for implementing Board Support Packages (BSPs) for bootleby.
 //!
-//! The stage0 BSP requirements are very simple, since for the most part, stage0
+//! The bootleby BSP requirements are very simple, since for the most part, bootleby
 //! doesn't care about the board. The exact properties that need to be described
 //! are in the `Bsp` trait below.
 //!
 //! To implement a BSP:
 //!
-//! 1. Create a module within `stage0::bsp` named after your board.
+//! 1. Create a module within `bootleby::bsp` named after your board.
 //! 2. Define a type in the module called `Board`. This type will never be
 //!    instantiated, so it can be arbitrary; an empty enum is easy.
-//! 3. Implement `stage0::bsp::Bsp` for your `Board` type.
+//! 3. Implement `bootleby::bsp::Bsp` for your `Board` type.
 //! 4. Add a `target-board-*` feature to `Cargo.toml`.
-//! 5. Add a branch to the `cfg_if` in `src/bin/stage0.rs` to detect your board
+//! 5. Add a branch to the `cfg_if` in `src/bin/bootleby.rs` to detect your board
 //!    and select the right `Board` type.
 
 // Note that these modules are not conditionally included. We always compile

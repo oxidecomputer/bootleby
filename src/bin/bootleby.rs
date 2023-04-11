@@ -13,16 +13,16 @@
 
 use core::sync::atomic::{compiler_fence, Ordering, AtomicBool};
 
-use stage0::{romapi, sha256, SlotId, NxpImageHeader, bsp::Bsp};
+use bootleby::{romapi, sha256, SlotId, NxpImageHeader, bsp::Bsp};
 
 // Select the appropriate BSP type as `Board`
 cfg_if::cfg_if! {
     if #[cfg(feature = "target-board-lpc55xpresso")] {
-        use stage0::bsp::lpc55xpresso::Board;
+        use bootleby::bsp::lpc55xpresso::Board;
     } else if #[cfg(feature = "target-board-rot-carrier")] {
-        use stage0::bsp::rot_carrier::Board;
+        use bootleby::bsp::rot_carrier::Board;
     } else if #[cfg(feature = "target-board-gimlet")] {
-        use stage0::bsp::gimlet::Board;
+        use bootleby::bsp::gimlet::Board;
     }
 }
 
@@ -47,8 +47,8 @@ fn main() -> ! {
 
     Board::configure(&p.IOCON, &p.GPIO);
 
-    let a_ok = stage0::verify_image(&p.FLASH, SlotId::A);
-    let b_ok = stage0::verify_image(&p.FLASH, SlotId::B);
+    let a_ok = bootleby::verify_image(&p.FLASH, SlotId::A);
+    let b_ok = bootleby::verify_image(&p.FLASH, SlotId::B);
 
     let (header, contents) = match (a_ok, b_ok) {
         (Some(img), None) => img,
@@ -86,7 +86,7 @@ fn check_for_override(gpio: &lpc55_pac::GPIO) -> SlotId {
 
     // Transient RAM override gets next preference. We're going to be
     // absurdly careful about accessing it for correctness reasons; this is not
-    // necessary given stage0's lack of concurrency but since this function can
+    // necessary given bootleby's lack of concurrency but since this function can
     // technically be called twice, we should be careful.
     {
         // Prevent calling this function concurrently.
@@ -106,14 +106,14 @@ fn check_for_override(gpio: &lpc55_pac::GPIO) -> SlotId {
         // obtaining a reference to this variable _once_ safe:
         let buffer = unsafe { &mut TRANSIENT_OVERRIDE };
 
-        if let Some(over) = stage0::check_transient_override(buffer) {
+        if let Some(over) = bootleby::check_transient_override(buffer) {
             return over;
         }
     }
 
     // Finally, persistent preference in the CFPA. This will always choose one
     // or the other.
-    let cfpa = stage0::read_cfpa();
+    let cfpa = bootleby::read_cfpa();
     if cfpa.boot_flags & 1 == 0 {
         SlotId::A
     } else {
@@ -254,7 +254,7 @@ fn boot_into(
                 @ know this isn't going to result in an _immediate_ bus
                 @ fault or usage fault. The main remaining failure case is
                 @ if the first instruction in the image isn't valid. An
-                @ ARM disassembler seems out of scope for stage0, so this
+                @ ARM disassembler seems out of scope for bootleby, so this
                 @ failure can happen.
                 bx r0
             ",

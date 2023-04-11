@@ -23,7 +23,7 @@
 #![no_std]
 #![no_main]
 
-use stage0::sha256;
+use bootleby::sha256;
 
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 use zerocopy::AsBytes;

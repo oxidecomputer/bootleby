@@ -1,5 +1,5 @@
 [package]
-name = "stage0"
+name = "bootleby"
 version = "0.1.0"
 edition = "2021"
 
@@ -37,12 +37,12 @@ lto = true
 debug = true
 
 [lib]
-name = "stage0"
+name = "bootleby"
 test = false
 bench = false
 
 [[bin]]
-name = "stage0"
+name = "bootleby"
 test = false
 bench = false
 

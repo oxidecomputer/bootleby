@@ -4,12 +4,12 @@
 
 //! LPC55 multi-image verified bootloader: the crate
 //!
-//! This crate provides most of the implementation for the "stage0" multi-image
+//! This crate provides most of the implementation for the "bootleby" multi-image
 //! bootloader, factored out of the binary itself so that it can be tested.
 //!
-//! In general, code should go here rather than into `stage0` directly, except
+//! In general, code should go here rather than into `bootleby` directly, except
 //! for the specific bits responsible for activating / launching a new image --
-//! those are hard to test separately from `stage0`.
+//! those are hard to test separately from `bootleby`.
 
 #![no_std]
 
@@ -34,7 +34,7 @@ pub enum SlotId { A, B }
 /// (Note that the flash controller also uses the term "word" to refer to a
 /// larger chunk of data; this code consistently uses "fword" for flash words.)
 ///
-/// Changing this constant requires updates to the linker script for both stage0
+/// Changing this constant requires updates to the linker script for both bootleby
 /// and any second-stage programs being launched.
 pub const SLOT_SIZE_WORDS: usize = 256 * 1024 / size_of::<u32>();
 
@@ -141,7 +141,7 @@ pub fn verify_image(
     // The LPC55 aliases flash in two places, 0 and `0x1000_0000`. These
     // locations differ in bit 28, which is not actually passed to the flash
     // controller. The distinction is that the addresses with bit 28 set are, by
-    // default, set secure-only by the IDAU. We link stage0 to run from
+    // default, set secure-only by the IDAU. We link bootleby to run from
     // addresses with bit 28 set, but we will tolerate next-stage programs
     // linked at either location.
     //
@@ -344,7 +344,7 @@ pub struct NxpImageHeader {
 /// Layout of the Customer Field Programmble Area structure in Flash.
 ///
 /// This struct should be exactly 512 bytes. If you change it such that its size
-/// is no longer 512 bytes, it will not compromise security, but stage0 will
+/// is no longer 512 bytes, it will not compromise security, but bootleby will
 /// panic while checking the persistent settings (and with any luck the static
 /// assertion below will fire before you hit the panic).
 #[derive(Copy, Clone, Debug, AsBytes, FromBytes)]
