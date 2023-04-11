@@ -1,4 +1,4 @@
-# The Currently Nameless LPC55 Bootloader
+# Bootleby: A LPC55 Bootloader
 
 Status: approaching feature-complete for now.
 
@@ -12,19 +12,16 @@ safely, but want to retain verified boot. So, this bootloader extends the ROM's
 verified boot chain of trust to one of two possible firmware images, depending
 on the results of signature checks and some minimal online configuration.
 
-This program refers to itself internally as "stage0" because it is the first
-stage of Oxide's RoT boot process, but it probably needs an actual name.
-
 ## Really minimal user manual
 
 This will not cover how to get verified boot working on an LPC55; you need to
 have already installed your key table hash in the CMPA, etc.
 
-`stage0` should be built and signed and deposited at the start of flash. By
+`bootleby` should be built and signed and deposited at the start of flash. By
 default, it structures the rest of flash into two image slots, each 256 kiB in
 length. The first starts at `0x1_0000`, and the second at `0x5_0000`.
 
-`stage0` will do exactly the following:
+`bootleby` will do exactly the following:
 
 - Check each firmware slot to see if it contains a valid, fully programmed,
   signed image. The ROM signature check logic is reused, though we perform some
@@ -41,8 +38,8 @@ length. The first starts at `0x1_0000`, and the second at `0x5_0000`.
   - The LSB of the word at offset `0x100` in the most recently written CFPA page
     is the last option. If 0, slot A is booted; if 1, slot B is booted.
 
-`stage0` does not stay resident or require any ongoing resources once it jumps
-into your program. This means there's no way to "call into" `stage0` other than
+`bootleby` does not stay resident or require any ongoing resources once it jumps
+into your program. This means there's no way to "call into" `bootleby` other than
 rebooting.
 
 
@@ -74,8 +71,8 @@ The `main` branch is protected, code must pass the build before being pushed
 there.
 
 This code is structured as a lib crate (most of the files under `src/`) so that
-it can be reused by both the real production stage0 binary, and tests.
-Production stage0 lives at `src/bin/stage0.rs`; other files in `src/bin` are
+it can be reused by both the real production bootleby binary, and tests.
+Production bootleby lives at `src/bin/bootleby.rs`; other files in `src/bin` are
 test programs. Ideally, more of the code would move into the lib and get tested;
 the only parts that really can't are the ones that boot into the chosen image.
 
@@ -108,47 +105,47 @@ adapter):
 cargo run --bin lpc55_flash /dev/ttyUSB0 ping
 ```
 
-### Building stage0 and extracting a bin file
+### Building bootleby and extracting a bin file
 
 In _this_ repo, run
 
 ```
 cargo build --release --no-default-features --features target-board-lpcxpresso
-arm-none-eabi-objcopy -O binary target/thumbv8m.main-none-eabihf/release/stage0 stage0.bin
+arm-none-eabi-objcopy -O binary target/thumbv8m.main-none-eabihf/release/bootleby bootleby.bin
 ```
 
-### Generating a signed stage0
+### Generating a signed bootleby
 
 All commands in this section must be executed inside your `lpc55_support`
 checkout, and **must all be prefixed with `cargo run --bin`**. I just got tired
 of repeating that part.
 
-These commands will reference files in the stage0 repo (home of this README
-file). I'll symbolically represent that path as `$STAGE0` below. Either define
+These commands will reference files in the bootleby repo (home of this README
+file). I'll symbolically represent that path as `$BOOTLEBY` below. Either define
 an environment variable with the path, or replace it in the commands.
 
 ```
-lpc55_sign signed-image $STAGE0/stage0.bin \
-    $STAGE0/demo/fake_private_key.pem \
-    $STAGE0/demo/fake_certificate.der.crt \
-    $STAGE0/stage0_signed.bin \
-    $STAGE0/stage0_cmpa.bin \
-    --cfpa $STAGE0/stage0_cfpa.bin \
+lpc55_sign signed-image $BOOTLEBY/bootleby.bin \
+    $BOOTLEBY/demo/fake_private_key.pem \
+    $BOOTLEBY/demo/fake_certificate.der.crt \
+    $BOOTLEBY/bootleby_signed.bin \
+    $BOOTLEBY/bootleby_cmpa.bin \
+    --cfpa $BOOTLEBY/bootleby_cfpa.bin \
 ```
 
-This will produce two files in `$STAGE0`: `stage0_signed.bin` is a signed
-version of the stage0 build, and `stage0_cmpa.bin` is an image containing the
+This will produce two files in `$BOOTLEBY`: `bootleby_signed.bin` is a signed
+version of the bootleby build, and `bootleby_cmpa.bin` is an image containing the
 keys to be programmed into the chip's Customer Manufacturing Parameter Area
 (CMPA).
 
 
 ### Generating A/B images
 
-Two demo images are included in `$STAGE0/demo`, `slot_a.bin` and `slot_b.bin`.
+Two demo images are included in `$BOOTLEBY/demo`, `slot_a.bin` and `slot_b.bin`.
 The slot A image will turn the LED green if it boots; the B image will turn it
 blue. This way you can tell them apart.
 
-Currently stage0 is configured to boot either correctly signed images, or
+Currently bootleby is configured to boot either correctly signed images, or
 unsigned images with a correct NXP CRC. Let's make one of each!
 
 From `lpc55_support`, sign the demo slot A program using the same key as before,
@@ -156,10 +153,10 @@ discarding the CMPA output, and specifying the program's load address (since
 we're using bin files, the load addresses are lost):
 
 ```
-lpc55_sign signed-image $STAGE0/demo/slot_a.bin \
-    $STAGE0/demo/fake_private_key.pem \
-    $STAGE0/demo/fake_certificate.der.crt \
-    $STAGE0/demo/slot_a_signed.bin \
+lpc55_sign signed-image $BOOTLEBY/demo/slot_a.bin \
+    $BOOTLEBY/demo/fake_private_key.pem \
+    $BOOTLEBY/demo/fake_certificate.der.crt \
+    $BOOTLEBY/demo/slot_a_signed.bin \
     /dev/null \
     --address 0x10000
 ```
@@ -167,13 +164,13 @@ lpc55_sign signed-image $STAGE0/demo/slot_a.bin \
 Then, wrap the slot B program in a CRC image without a signature:
 
 ```
-lpc55_sign crc $STAGE0/demo/slot_b.bin \
-    $STAGE0/demo/slot_b_crc.bin \
+lpc55_sign crc $BOOTLEBY/demo/slot_b.bin \
+    $BOOTLEBY/demo/slot_b_crc.bin \
     --address 0x50000
 ```
 
 You should now have `slot_a_signed.bin` and `slot_b_crc.bin` files in
-`$STAGE0/demo`.
+`$BOOTLEBY/demo`.
 
 ### Erasing the flash and any existing keys
 
@@ -191,8 +188,8 @@ lpc55_flash /dev/ttyUSB0 flash-erase-all
 This will overwrite the newly-erased CMPA with our certificate:
 
 ```
-lpc55_flash /dev/ttyUSB0 write-cmpa $STAGE0/stage0_cmpa.bin
-lpc55_flash /dev/ttyUSB0 write-cfpa $STAGE0/stage0_cfpa.bin
+lpc55_flash /dev/ttyUSB0 write-cmpa $BOOTLEBY/bootleby_cmpa.bin
+lpc55_flash /dev/ttyUSB0 write-cfpa $BOOTLEBY/bootleby_cfpa.bin
 ```
 
 ### Programming our images
@@ -202,9 +199,9 @@ in Flash. We can do that by running the following three commands (in
 `lpc55_support`):
 
 ```
-lpc55_flash /dev/ttyUSB0 write-memory 0 $STAGE0/stage0_signed.bin
-lpc55_flash /dev/ttyUSB0 write-memory 0x10000 $STAGE0/demo/slot_a_signed.bin
-lpc55_flash /dev/ttyUSB0 write-memory 0x50000 $STAGE0/demo/slot_b_crc.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0 $BOOTLEBY/bootleby_signed.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0x10000 $BOOTLEBY/demo/slot_a_signed.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0x50000 $BOOTLEBY/demo/slot_b_crc.bin
 ```
 
 ### Trying it out and troubleshooting
@@ -212,64 +209,64 @@ lpc55_flash /dev/ttyUSB0 write-memory 0x50000 $STAGE0/demo/slot_b_crc.bin
 Hit the RESET button.
 
 You should see the LED light green. This means slot A has been booted, which
-means that stage0 successfully verified its signature and chain-loaded it.
+means that bootleby successfully verified its signature and chain-loaded it.
 
 Try holding the USER button while you reset the board. The LED should light
-blue. This is because stage0 is currently configured to treat the USER button as
+blue. This is because bootleby is currently configured to treat the USER button as
 an image selection override and prefer slot B if both are present.
 
 If something goes wrong, you'll see one of two results:
 
-- LED lights red: stage0 found no valid images or panicked while verifying them.
+- LED lights red: bootleby found no valid images or panicked while verifying them.
   Try performing the steps above again, making sure you didn't skip anything. If
   it still doesn't work please report it.
 
-- LED lights blue without USER button held: stage0 doesn't believe slot A is
+- LED lights blue without USER button held: bootleby doesn't believe slot A is
   signed correctly. This usually means you forgot to load the keys into the
   CMPA, but could also be an error in the sign command (in particular, make sure
   the load address is specified as given above).
 
-- LED does not turn on: stage0 has failed to start, and is probably sitting in a
+- LED does not turn on: bootleby has failed to start, and is probably sitting in a
   HardFault handler. This usually happens because you failed to program either
-  slot A or slot B; stage0 will currently crash if it reads erased flash. If
+  slot A or slot B; bootleby will currently crash if it reads erased flash. If
   both slots are programmed, please report this.
 
 
 ### Rewriting just one image
 
-For stage0:
+For bootleby:
 
 ```
 lpc55_flash /dev/ttyUSB0 flash-erase-region 0 0x10000
-lpc55_flash /dev/ttyUSB0 write-memory 0 $STAGE0/stage0_signed.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0 $BOOTLEBY/bootleby_signed.bin
 ```
 
 For slot A:
 
 ```
 lpc55_flash /dev/ttyUSB0 flash-erase-region 0x10000 0x40000
-lpc55_flash /dev/ttyUSB0 write-memory 0x10000 $STAGE0/demo/slot_a_signed.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0x10000 $BOOTLEBY/demo/slot_a_signed.bin
 ```
 
 For slot B:
 
 ```
 lpc55_flash /dev/ttyUSB0 flash-erase-region 0x50000 0x40000
-lpc55_flash /dev/ttyUSB0 write-memory 0x50000 $STAGE0/demo/slot_b_crc.bin
+lpc55_flash /dev/ttyUSB0 write-memory 0x50000 $BOOTLEBY/demo/slot_b_crc.bin
 ```
 
 This also gives you the opportunity to experiment with installing signed,
-unsigned, or even entirely bogus images to see what stage0 does.
+unsigned, or even entirely bogus images to see what bootleby does.
 
-If you erase slot A or B and attempt to boot, stage0 will currently crash (see
-above). If you erase stage0 and attempt to boot, you'll end up in the
+If you erase slot A or B and attempt to boot, bootleby will currently crash (see
+above). If you erase bootleby and attempt to boot, you'll end up in the
 bootloader.
 
 ### Getting DICE to work
 
 If you follow the instructions above, we will provide a DICE CDI to the
 next-stage software, but it will be based _solely_ on the next stage software
-and won't include any measurement of the ROM or stage0. This is because the ROM
+and won't include any measurement of the ROM or bootleby. This is because the ROM
 DICE support is turned off by default. Enabling it takes some _doing._
 
 You will need:
@@ -277,18 +274,18 @@ You will need:
 - A valid CFPA image.
 - To enroll the PUF and generate the UDS.
 
-These instructions assume `$STAGE0/stage0.bin` is the binary stage0 extracted
+These instructions assume `$BOOTLEBY/bootleby.bin` is the binary bootleby extracted
 during a previous build step. We need to sign it _slightly differently_ to get
 the CFPA and then run some other steps. From `lpc55_support`, and again
 prefixing each command with `cargo run --bin`, do:
 
 ```
-lpc55_sign signed-image $STAGE0/stage0.bin \
-    $STAGE0/demo/fake_private_key.pem \
-    $STAGE0/demo/fake_certificate.der.crt \
-    $STAGE0/stage0_signed.bin \
-    $STAGE0/stage0_cmpa.bin \
-    --cfpa $STAGE0/stage0_cfpa.bin \
+lpc55_sign signed-image $BOOTLEBY/bootleby.bin \
+    $BOOTLEBY/demo/fake_private_key.pem \
+    $BOOTLEBY/demo/fake_certificate.der.crt \
+    $BOOTLEBY/bootleby_signed.bin \
+    $BOOTLEBY/bootleby_cmpa.bin \
+    --cfpa $BOOTLEBY/bootleby_cfpa.bin \
     --with-dice \
     --with-dice-inc-nxp-cfg \
     --with-dice-cust-cfg \
@@ -296,10 +293,10 @@ lpc55_sign signed-image $STAGE0/stage0.bin \
 
 lpc55_flash /dev/ttyUSB0 erase-cmpa
 
-lpc55_flash /dev/ttyUSB0 write-cmpa $STAGE0/stage0_cmpa.bin
+lpc55_flash /dev/ttyUSB0 write-cmpa $BOOTLEBY/bootleby_cmpa.bin
 
 lpc55_flash /dev/ttyUSB0 write-cfpa \
-    $STAGE0/stage0_cfpa.bin \
+    $BOOTLEBY/bootleby_cfpa.bin \
     --update-version
 
 lpc55_flash /dev/ttyUSB0 erase-key-store
@@ -308,10 +305,10 @@ lpc55_flash /dev/ttyUSB0 generate-uds
 lpc55_flash /dev/ttyUSB0 write-key-store
 ```
 
-If you reboot, it should behave exactly the same as the previous signed stage0.
+If you reboot, it should behave exactly the same as the previous signed bootleby.
 Currently you need a debugger to tell the difference. To verify that DICE is on,
 
-1. Set a breakpoint at `main` in stage0.
+1. Set a breakpoint at `main` in bootleby.
 2. Dump 8 registers starting at `0x5000_0900` (in pyocd: `read32 0x50000900 32`)
 3. Resume the program and let it boot
 4. Halt it again.
