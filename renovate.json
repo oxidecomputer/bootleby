@@ -3,7 +3,7 @@
   "extends": [
     "local>oxidecomputer/renovate-config"
   ],
-  "assignees": [
+  "reviewers": [
     "kc8apf"
   ]
 }
