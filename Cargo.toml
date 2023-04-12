@@ -17,7 +17,7 @@ allow-unsigned-images = []
 cfg-if = "1.0.0"
 cortex-m = { version = "0.7.7", features = ["inline-asm"] }
 cortex-m-rt = "0.7.3"
-crc = { version = "3.0.0", default-features = false }
+crc = { version = "3.0.1", default-features = false }
 crc-catalog = "2.2.0"
 hex-literal = "0.3.4"
 lpc55-pac = { version = "0.5.0", features = ["rt"] }
