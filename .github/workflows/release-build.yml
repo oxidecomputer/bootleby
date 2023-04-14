@@ -1,0 +1,88 @@
+name: Release build
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  release-build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        board:
+          - lpc55xpresso
+          - rot-carrier
+          - gimlet
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust toolchain
+      run: rustup show
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update && sudo apt-get install binutils-arm-none-eabi
+
+    - name: Build
+      run: |
+        cargo build --release --no-default-features --features target-board-${{ matrix.board }}
+
+    - name: Package artifacts
+      id: package
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=$(cut -d/ -f3- <<<"$GITHUB_REF")
+        else
+          VERSION=${GITHUB_SHA::11}
+        fi
+
+        BUILD_NAME=bootleby-${VERSION}-${{ matrix.board }}
+
+        cp target/thumbv8m.main-none-eabihf/release/bootleby ${BUILD_NAME}.elf
+        arm-none-eabi-objcopy -O binary target/thumbv8m.main-none-eabihf/release/bootleby ${BUILD_NAME}.bin
+
+        echo '```' > SHA256SUMS
+        sha256sum "${BUILD_NAME}.elf" >> SHA256SUMS
+        sha256sum "${BUILD_NAME}.bin" >> SHA256SUMS
+        echo '```' >> SHA256SUMS
+
+        # Make some info available for later steps
+        echo "build_name=${BUILD_NAME}" >> "${GITHUB_OUTPUT}"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ steps.package.outputs.build_name }}
+        path: |
+          ${{ steps.package.outputs.build_name }}.elf
+          ${{ steps.package.outputs.build_name }}.bin
+        
+    - name: Create release if tagged
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        generate_release_notes: true
+
+    # This is separate from creating the release because when a release is first
+    # created, body_path is inserted before the generated release notes.  In
+    # subsequent uploads, body_path is appended.  If combined into a single
+    # step, that means the first SHA256 is put above the release notes with the
+    # rest below.  By splitting into two steps, all SHA256s will be after the
+    # generated release notes.
+    - name: Update release with SHA256
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        append_body: true
+        body_path: SHA256SUMS
+        files: |
+          ${{ steps.package.outputs.build_name}}.elf
+          ${{ steps.package.outputs.build_name}}.bin
