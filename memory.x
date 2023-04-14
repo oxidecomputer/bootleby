@@ -7,6 +7,14 @@ MEMORY {
      * as scratch space during the skboot calls.
      */
     RAM (rw): ORIGIN = 0x30004000, LENGTH = 4K
+    /*
+     * Stack is shifted hundreds of kiB away to try to avoid stack clash,
+     * since the ROM's RAM usage means we can't simply have stack grow toward
+     * unmapped address space.
+     *
+     * The -32 there is to avoid the transient override section.
+     */
+    STACK (rw): ORIGIN = 0x30010000, LENGTH = 192K - 32
 
     /*
      * A/B images start at 64kiB for compatibility with the old bootloader's
@@ -41,6 +49,13 @@ MEMORY {
  */
 __start_of_ram = ORIGIN(RAM);
 __end_of_ram = ORIGIN(RAM) + LENGTH(RAM);
+
+SECTIONS {
+    .stack_placeholder ORIGIN(STACK) (NOLOAD): ALIGN(8) {
+        . += LENGTH(STACK);
+        _stack_start = .;
+    } > STACK
+} INSERT BEFORE .uninit
 
 SECTIONS {
     .rom_table ORIGIN(ROM_TABLE) (NOLOAD): {
