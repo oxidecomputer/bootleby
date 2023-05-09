@@ -447,10 +447,11 @@ pub const PREFER_SLOT_B: [u8; 32] = hex!(
 /// Inspects the contents of `buffer` to see if it contains one of the special
 /// byte sequences for overriding boot preference.
 ///
-/// If it _does,_ it will be cleared, which is why this requires a `&mut`. If it
-/// contains other arbitrary data, it will be preserved. This is arguably an odd
-/// division of responsibilities, but it makes our standard use case --
-/// processing a boot command _exactly once_ -- far harder to screw up.
+/// If it _does,_ it will be cleared and the bottom bit of the first byte set to
+/// reflect the choice, which is why this requires a `&mut`. If it contains
+/// other arbitrary data, it will be preserved. This is arguably an odd division
+/// of responsibilities, but it makes our standard use case -- processing a boot
+/// command _exactly once_ -- far harder to screw up.
 ///
 /// This function doesn't implicitly access the `TRANSIENT_OVERRIDE` buffer
 /// because, to do so safely, we need to know about the processor's situation
@@ -464,8 +465,9 @@ pub fn check_transient_override(buffer: &mut [u8; 32]) -> Option<SlotId> {
         None
     };
 
-    if choice.is_some() {
+    if let Some(slot) = choice {
         buffer.fill(0);
+        buffer[0] = if slot == SlotId::A { 0 } else { 1 };
     }
 
     choice
