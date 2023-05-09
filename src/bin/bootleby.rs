@@ -50,12 +50,15 @@ fn main() -> ! {
     let a_ok = bootleby::verify_image(&p.FLASH, SlotId::A);
     let b_ok = bootleby::verify_image(&p.FLASH, SlotId::B);
 
+    // Run the choice/override mechanism whether or not we have two good images,
+    // because it has side effects on the transient override state.
+    let choice = check_for_override(&p.GPIO);
+
     let (header, contents) = match (a_ok, b_ok) {
         (Some(img), None) => img,
         (None, Some(img)) => img,
         (Some(img_a), Some(img_b)) => {
             // Defer to the choice/override mechanism if both images are good.
-            let choice = check_for_override(&p.GPIO);
             match choice {
                 SlotId::A => img_a,
                 SlotId::B => img_b,
