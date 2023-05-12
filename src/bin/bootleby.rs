@@ -50,9 +50,11 @@ fn main() -> ! {
     let a_ok = bootleby::verify_image(&p.FLASH, SlotId::A);
     let b_ok = bootleby::verify_image(&p.FLASH, SlotId::B);
 
-    // Run the choice/override mechanism whether or not we have two good images,
-    // because it has side effects on the transient override state.
-    let choice = check_for_override(&p.GPIO);
+    // Take our decisions above, the persistent setting, the transient override,
+    // and whatever board-specific override facility may or may not exist, and
+    // put it all in a blender to make a decision -- recording that decision in
+    // the process.
+    let choice = check_for_override(&p.GPIO, a_ok.is_some(), b_ok.is_some());
 
     let (header, contents) = match (a_ok, b_ok) {
         (Some(img), None) => img,
@@ -79,19 +81,17 @@ fn main() -> ! {
 /// - Override button, if implemented by the BSP.
 /// - Transient RAM preference override, if present.
 /// - Persistent preference in CFPA.
-fn check_for_override(gpio: &lpc55_pac::GPIO) -> SlotId {
-    // If implemented, allow the override buttons on the eval board to win over
-    // all other mechanisms. (This will compile out for boards that have no
-    // override mechanism.)
-    if let Some(over) = Board::check_override(gpio) {
-        return over;
-    }
-
-    // Transient RAM override gets next preference. We're going to be
-    // absurdly careful about accessing it for correctness reasons; this is not
-    // necessary given bootleby's lack of concurrency but since this function can
-    // technically be called twice, we should be careful.
-    {
+fn check_for_override(gpio: &lpc55_pac::GPIO, a_ok: bool, b_ok: bool) -> SlotId {
+    // Check transient RAM first to get a pointer to the buffer, even though it
+    // isn't first in priority order. We'll do the prioritization below.
+    //
+    // We're going to be absurdly careful about accessing the shared region for
+    // correctness reasons; this is not necessary given bootleby's lack of
+    // concurrency but since this function can technically be called twice, we
+    // should be careful.
+    //
+    // If you call this twice, the second will panic.
+    let shared_buffer = {
         // Prevent calling this function concurrently.
         static OVERRIDE_CHECKED: AtomicBool = AtomicBool::new(false);
         if OVERRIDE_CHECKED.swap(true, Ordering::SeqCst) {
@@ -100,28 +100,57 @@ fn check_for_override(gpio: &lpc55_pac::GPIO) -> SlotId {
         }
 
         // Transient override token location, placed by the linker script, and
-        // only visible to the code below.
+        // only visible to the code below (and the code outside this block).
         extern "C" {
             static mut TRANSIENT_OVERRIDE: [u8; 32];
         }
 
         // Safety: the exclusivity check above is more than enough to make
         // obtaining a reference to this variable _once_ safe:
-        let buffer = unsafe { &mut TRANSIENT_OVERRIDE };
+        unsafe { &mut TRANSIENT_OVERRIDE }
+    };
+    let transient_choice = bootleby::check_transient_override(shared_buffer);
 
-        if let Some(over) = bootleby::check_transient_override(buffer) {
-            return over;
-        }
-    }
+    // Go ahead and nuke any transient choice command; we'll fill in more data
+    // below.
+    shared_buffer.fill(0);
+
+    // If implemented, allow the override buttons on the eval board to win over
+    // all other mechanisms. (This will compile out for boards that have no
+    // override mechanism.)
+    let hw_choice = Board::check_override(gpio);
 
     // Finally, persistent preference in the CFPA. This will always choose one
     // or the other.
     let cfpa = bootleby::read_cfpa();
-    if cfpa.boot_flags & 1 == 0 {
+    let persistent_choice = if cfpa.boot_flags & 1 == 0 {
         SlotId::A
     } else {
         SlotId::B
+    };
+
+    // Update the shared buffer with information about what we've found.
+    // The bytes that currently have meaning are:
+    // [0] = 1 if slot A validated, 0 otherwise
+    // [1] = 1 if slot B validated, 0 otherwise
+    // [2] = 0 if slot A chosen persistently, 1 if slot B
+    // [3] = 0 if slot A chosen by override, 1 if slot B, FF if no override
+    // [4] = 0 if slot A chosen by BSP, 1 if slot B, FF if no choice
+    fn byteify(choice: Option<SlotId>) -> u8 {
+        choice.map(|slot| slot as u8).unwrap_or(0xFF)
     }
+
+    shared_buffer[0] = a_ok as u8;
+    shared_buffer[1] = b_ok as u8;
+    shared_buffer[2] = byteify(Some(persistent_choice));
+    shared_buffer[3] = byteify(transient_choice);
+    shared_buffer[4] = byteify(hw_choice);
+
+    // Prioritize among our possible choices as follows (Option::or
+    // short-circuits):
+    hw_choice
+        .or(transient_choice)
+        .unwrap_or(persistent_choice)
 }
 
 #[panic_handler]
