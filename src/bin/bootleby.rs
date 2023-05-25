@@ -54,7 +54,7 @@ fn main() -> ! {
     // and whatever board-specific override facility may or may not exist, and
     // put it all in a blender to make a decision -- recording that decision in
     // the process.
-    let choice = check_for_override(&p.GPIO, a_ok.is_some(), b_ok.is_some());
+    let choice = check_for_override(&p.GPIO, &p.SYSCON, a_ok.is_some(), b_ok.is_some());
 
     let (header, contents) = match (a_ok, b_ok) {
         (Some(img), None) => img,
@@ -81,7 +81,12 @@ fn main() -> ! {
 /// - Override button, if implemented by the BSP.
 /// - Transient RAM preference override, if present.
 /// - Persistent preference in CFPA.
-fn check_for_override(gpio: &lpc55_pac::GPIO, a_ok: bool, b_ok: bool) -> SlotId {
+fn check_for_override(
+    gpio: &lpc55_pac::GPIO,
+    syscon: &lpc55_pac::SYSCON,
+    a_ok: bool,
+    b_ok: bool,
+) -> SlotId {
     // Check transient RAM first to get a pointer to the buffer, even though it
     // isn't first in priority order. We'll do the prioritization below.
     //
@@ -114,6 +119,50 @@ fn check_for_override(gpio: &lpc55_pac::GPIO, a_ok: bool, b_ok: bool) -> SlotId 
     // Go ahead and nuke any transient choice command; we'll fill in more data
     // below.
     shared_buffer.fill(0);
+
+    // Check for a Bootleby Override Image Select debug authentication beacon.
+    //
+    // Debug authentication beacons are two 16-bit values: one in a debug
+    // credential and the other in a debug authentication response. The LPC55
+    // ROM will only accept a debug authentication response signed by the
+    // private key matching the debug credential embedded inside the response
+    // which itself must be signed by a private key matching one of the secure
+    // boot root public keys recorded in CMPA. Since the debug credential must
+    // be signed by one of the secure boot root keys (which are presumed to be
+    // kept secure and infrequently accessed), the debug credential beacon
+    // embedded in that debug credential can be treated as an RPC index that the
+    // holder of the debug credential's private key is authorized to invoke.
+    //
+    // The debug authentication response is signed by the debug credential's
+    // private key which must be available for each debug authentication session
+    // and thus the debug authentication beacon may be changed for each session.
+    // This allows the debug authentication response beacon to be used as an
+    // argument to the RPC.
+    //
+    // If the debug auth beacon register contains any value other than zero, it
+    // can only have been set by a successful debug authentication
+    // challenge/response with a signature chain tracing back to one of the
+    // enabled secure boot root keys.
+    //
+    // If the debug credential beacon indicates a Bootleby Override Image
+    // Select, the debug authentication response beacon indicates which slot to
+    // use.  If this mechanism was used, someone is connected via SWD and is
+    // explicitly authorized (by whatever process is necessary to have their
+    // debug credential signed by one of the secure boot root keys) to perform
+    // an override so allow that to win over everything else.
+    let beacon_choice = {
+        const DEBUG_CRED_BEACON_OVERRIDE_IMAGE_SELECT: u32 = 18578;
+
+        let beacon = syscon.debug_auth_beacon.read().bits();
+        let cred_beacon = beacon & 0xFFFF;
+        let auth_beacon = beacon >> 16;
+
+        match (cred_beacon, auth_beacon) {
+            (DEBUG_CRED_BEACON_BOOTLBY_OVERRIDE_IMAGE_SELECT, 0) => Some(SlotId::A),
+            (DEBUG_CRED_BEACON_BOOTLBY_OVERRIDE_IMAGE_SELECT, 1) => Some(SlotId::B),
+            _ => None,
+        }
+    };
 
     // If implemented, allow the override buttons on the eval board to win over
     // all other mechanisms. (This will compile out for boards that have no
@@ -148,7 +197,8 @@ fn check_for_override(gpio: &lpc55_pac::GPIO, a_ok: bool, b_ok: bool) -> SlotId 
 
     // Prioritize among our possible choices as follows (Option::or
     // short-circuits):
-    hw_choice
+    beacon_choice
+        .or(hw_choice)
         .or(transient_choice)
         .unwrap_or(persistent_choice)
 }
