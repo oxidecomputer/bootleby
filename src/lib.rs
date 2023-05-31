@@ -410,6 +410,7 @@ pub fn is_programmed(flash: &lpc55_pac::FLASH, word_number: u32) -> bool {
         // spin.
     }
 
+    #[allow(clippy::needless_bool)]
     if flash.int_status.read().fail().bit() {
         // Counter-intuitively, FAIL here means we succeeded, in that the page
         // is _not_ blank.
