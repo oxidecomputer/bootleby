@@ -158,8 +158,8 @@ fn check_for_override(
         let auth_beacon = beacon >> 16;
 
         match (cred_beacon, auth_beacon) {
-            (DEBUG_CRED_BEACON_BOOTLBY_OVERRIDE_IMAGE_SELECT, 0) => Some(SlotId::A),
-            (DEBUG_CRED_BEACON_BOOTLBY_OVERRIDE_IMAGE_SELECT, 1) => Some(SlotId::B),
+            (DEBUG_CRED_BEACON_OVERRIDE_IMAGE_SELECT, 0) => Some(SlotId::A),
+            (DEBUG_CRED_BEACON_OVERRIDE_IMAGE_SELECT, 1) => Some(SlotId::B),
             _ => None,
         }
     };
