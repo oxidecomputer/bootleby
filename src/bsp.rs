@@ -24,8 +24,8 @@
 // everything actually builds.
 //
 // We may have to stop doing this eventually but it's nice for now.
-pub mod gimlet;
 pub mod lpc55xpresso;
+pub mod oxide_rot_1;
 pub mod rot_carrier;
 
 use crate::SlotId;

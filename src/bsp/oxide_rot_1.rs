@@ -2,7 +2,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/// BSP for Gimlet (revs B, C, D, ...)
+/// BSP for Oxide Root of Trust v1 used on:
+/// * Gimlet rev C and later
+/// * Sidecar all revision
+/// * PSC rev B and later
 ///
 /// This is the simplest BSP since it has no useful affordances like LEDs.
 use super::Bsp;
