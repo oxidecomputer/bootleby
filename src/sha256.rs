@@ -53,8 +53,8 @@ use core::num::Wrapping;
 
 // These constants describe intrinsic properties of the SHA256 algorithm and
 // should not be changed.
-const WORDS_PER_BLOCK: usize = 512 / 32;  // which is to say, 16
-const WORDS_PER_HASH: usize = 256 / 32 ;  // which is to say, 8
+const WORDS_PER_BLOCK: usize = 512 / 32; // which is to say, 16
+const WORDS_PER_HASH: usize = 256 / 32; // which is to say, 8
 
 // It's also convenient to have one as Wrapping u64:
 const WORDS_PER_BLOCK64: Wrapping<u64> = Wrapping(WORDS_PER_BLOCK as u64);
@@ -63,11 +63,7 @@ const WORDS_PER_BLOCK64: Wrapping<u64> = Wrapping(WORDS_PER_BLOCK as u64);
 /// with a measurement of `data` using an HMAC. The result is deposited back in
 /// SYSCON, destroying the original CDI so it cannot be used for eeeeeevil.
 #[inline(never)]
-pub fn update_cdi(
-    syscon: &lpc55_pac::SYSCON,
-    engine: &lpc55_pac::HASHCRYPT,
-    data: &[u32],
-) {
+pub fn update_cdi(syscon: &lpc55_pac::SYSCON, engine: &lpc55_pac::HASHCRYPT, data: &[u32]) {
     // Collect the current CDI from SYSCON, which we assume is the one from the
     // ROM. (If this is the first time you're calling this routine since boot,
     // it should be the one from ROM.)
@@ -81,15 +77,11 @@ pub fn update_cdi(
         // the addition. In this case we're offsetting within the peripheral to
         // a struct field that should really already be defined, so overflow
         // can't occur.
-        unsafe {
-            (x as *mut u32).add(0x900 / 4) 
-        }
+        unsafe { (x as *mut u32).add(0x900 / 4) }
     };
     let mut current_cdi = [0; WORDS_PER_HASH];
     for (i, dest) in current_cdi.iter_mut().enumerate() {
-        *dest = unsafe {
-            core::ptr::read_volatile(cdi_pointer.add(i))
-        };
+        *dest = unsafe { core::ptr::read_volatile(cdi_pointer.add(i)) };
     }
 
     // Compute the new CDI by HMAC, using the ROM CDI as key, and the `data` as,
@@ -100,10 +92,7 @@ pub fn update_cdi(
     // of the original CDI value.
     for (i, &src) in new_cdi.iter().enumerate() {
         unsafe {
-            core::ptr::write_volatile(
-                cdi_pointer.add(i),
-                src,
-            );
+            core::ptr::write_volatile(cdi_pointer.add(i), src);
         }
     }
 }
@@ -180,14 +169,15 @@ pub struct Hasher<'a> {
 impl<'a> Hasher<'a> {
     /// Starts a new SHA256 hash operation, initializing the `HASHCRYPT` unit.
     #[inline(never)]
-    pub fn begin(
-        syscon: &'a lpc55_pac::SYSCON,
-        engine: &'a lpc55_pac::HASHCRYPT,
-    ) -> Self {
+    pub fn begin(syscon: &'a lpc55_pac::SYSCON, engine: &'a lpc55_pac::HASHCRYPT) -> Self {
         // The ROM does stuff with the hash block and leaves it in an
         // intermediate state, because of course it does. Reset it.
-        syscon.presetctrl2.modify(|_, w| w.hash_aes_rst().asserted());
-        syscon.presetctrl2.modify(|_, w| w.hash_aes_rst().released());
+        syscon
+            .presetctrl2
+            .modify(|_, w| w.hash_aes_rst().asserted());
+        syscon
+            .presetctrl2
+            .modify(|_, w| w.hash_aes_rst().released());
 
         // Those writes go to an entirely different part of the address space
         // than our writes to the hash controller; make sure they happen-before.
@@ -197,7 +187,9 @@ impl<'a> Hasher<'a> {
         // hash. (The UM is not entirely clear whether setting the mode and
         // starting the hash in a single write is legal, but it works and NXP's
         // code appears to do the same thing.)
-        engine.ctrl.write(|w| w.mode().sha2_256().new_hash().start());
+        engine
+            .ctrl
+            .write(|w| w.mode().sha2_256().new_hash().start());
 
         Self {
             syscon,
@@ -287,7 +279,9 @@ impl<'a> Hasher<'a> {
         // our accesses above.
         cortex_m::asm::dsb();
 
-        self.syscon.presetctrl2.modify(|_, w| w.hash_aes_rst().asserted());
+        self.syscon
+            .presetctrl2
+            .modify(|_, w| w.hash_aes_rst().asserted());
 
         result
     }
@@ -302,7 +296,9 @@ impl<'a> Hasher<'a> {
                 // spin.
             }
         }
-        self.engine.indata.write(|w| unsafe { w.data().bits(word ^ mask) });
+        self.engine
+            .indata
+            .write(|w| unsafe { w.data().bits(word ^ mask) });
         self.word_count += Wrapping(1);
     }
 }

@@ -24,9 +24,9 @@
 // everything actually builds.
 //
 // We may have to stop doing this eventually but it's nice for now.
-pub mod rot_carrier;
-pub mod lpc55xpresso;
 pub mod gimlet;
+pub mod lpc55xpresso;
+pub mod rot_carrier;
 
 use crate::SlotId;
 
@@ -49,5 +49,7 @@ pub trait Bsp {
     /// This is an eval board feature; in production builds we expect to use the
     /// default impl of this, which returns `None` (meaning no override is
     /// possible).
-    fn check_override(_gpio: &lpc55_pac::GPIO) -> Option<SlotId> { None }
+    fn check_override(_gpio: &lpc55_pac::GPIO) -> Option<SlotId> {
+        None
+    }
 }

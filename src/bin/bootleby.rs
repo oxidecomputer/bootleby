@@ -11,9 +11,9 @@
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::{compiler_fence, Ordering, AtomicBool};
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
-use bootleby::{romapi, sha256, SlotId, NxpImageHeader, bsp::Bsp};
+use bootleby::{bsp::Bsp, romapi, sha256, NxpImageHeader, SlotId};
 
 // Select the appropriate BSP type as `Board`
 cfg_if::cfg_if! {
@@ -231,17 +231,11 @@ unsafe fn HardFault(_ef: &ExceptionFrame) -> ! {
     }
 }
 
-fn boot_into(
-    header: &'static NxpImageHeader,
-) -> ! {
+fn boot_into(header: &'static NxpImageHeader) -> ! {
     // Detect the image's idea of its link address and use this to correct the
     // VTOR as required.
     let bit_28_set = header.reset_vector & 1 << 28 != 0;
-    let mask = if bit_28_set {
-        !0
-    } else {
-        !(1 << 28)
-    };
+    let mask = if bit_28_set { !0 } else { !(1 << 28) };
 
     // And away we go!
     //
@@ -367,6 +361,8 @@ fn HASHCRYPT() {
     // control, it's not any _more_ unsafe than calling into the ROM routine in
     // the first place.
     unsafe {
-        (romapi::bootloader_tree().skboot.skboot_hashcrypt_irq_handler)();
+        (romapi::bootloader_tree()
+            .skboot
+            .skboot_hashcrypt_irq_handler)();
     }
 }

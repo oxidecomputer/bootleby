@@ -13,18 +13,21 @@
 
 #![no_std]
 
+pub mod bsp;
 pub mod romapi;
 pub mod sha256;
-pub mod bsp;
 
-use core::{sync::atomic::Ordering, mem::size_of};
+use core::{mem::size_of, sync::atomic::Ordering};
 use hex_literal::hex;
 use zerocopy::{AsBytes, FromBytes, LayoutVerified};
 
 /// Names for our two firmware slots. Used whenever we need to pass around a
 /// token identifying one slot or the other.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum SlotId { A, B }
+pub enum SlotId {
+    A,
+    B,
+}
 
 /// Size of each flash image slot in 32-bit words. The ROM requires flash images
 /// to be 32-bit aligned, and it's easier for us if they are, too, so we'll just
@@ -108,8 +111,7 @@ pub fn verify_image(
     // the image base address by the size of an fword. Because flash is aliased
     // twice, we also mask off the top bits, which aren't decoded by the flash
     // controller interface.
-    let start_fword =
-        (image.as_ptr() as u32 / BYTES_PER_FWORD as u32) & FLASH_DECODE_MASK;
+    let start_fword = (image.as_ptr() as u32 / BYTES_PER_FWORD as u32) & FLASH_DECODE_MASK;
     // Verify that the _first_ page of the image has been programmed. Without
     // this, we can't load the image size.
     if !is_programmed(flash, start_fword) {
@@ -131,9 +133,8 @@ pub fn verify_image(
     // - Image is 4-byte aligned (we get this from the use of u32 anyway, but it
     //   is re-checked)
     // - Image is large enough to contain the image header as a prefix.
-    let (header, _) = 
-        LayoutVerified::<_, NxpImageHeader>::new_from_prefix(image.as_bytes())
-        .unwrap();
+    let (header, _) =
+        LayoutVerified::<_, NxpImageHeader>::new_from_prefix(image.as_bytes()).unwrap();
     // We don't need to carry the properties of the LayoutVerified type, and
     // doing so makes certain things awkward; just a reference please.
     let header = header.into_ref();
@@ -180,14 +181,13 @@ pub fn verify_image(
     // so `image_length` is significantly smaller than `u32::MAX`. So, we
     // override the overflow check.
     let image_length_fwords =
-        header.image_length.wrapping_add(BYTES_PER_FWORD_U32 + 1)
-            / BYTES_PER_FWORD_U32;
+        header.image_length.wrapping_add(BYTES_PER_FWORD_U32 + 1) / BYTES_PER_FWORD_U32;
 
     // Verify that every. single. page. of the image is readable, because the
     // ROM doesn't do this despite NXP suggesting it in their app notes.
     //
     // Skip the first page because we checked it above.
-    let fword_range = start_fword .. start_fword + image_length_fwords;
+    let fword_range = start_fword..start_fword + image_length_fwords;
     for w in fword_range.step_by(FWORDS_PER_PAGE).skip(1) {
         if !is_programmed(flash, w) {
             return None;
@@ -264,7 +264,7 @@ pub fn verify_image(
             let mask_without_28 = !(1 << 28);
             let start = r.start as u32 & mask_without_28;
             let end = r.end as u32 & mask_without_28;
-            start as *const _ .. end as *const _
+            start as *const _..end as *const _
         };
 
         // Verify that the reset vector points within the image. Without doing
@@ -276,7 +276,7 @@ pub fn verify_image(
             return None;
         }
     }
-    
+
     #[cfg(feature = "allow-unsigned-images")]
     if header.image_type == 5 {
         // Plain CRC XIP image. skboot_authenticate doesn't like these. We
@@ -307,9 +307,7 @@ pub fn verify_image(
     // potentially-racy things to our state, so that's ok. We'll disable it in
     // just a bit.
     let mut is_verified = 1234; // function doesn't always initialize this
-    let result = unsafe {
-        auth(image.as_ptr(), &mut is_verified)
-    };
+    let result = unsafe { auth(image.as_ptr(), &mut is_verified) };
     // I have _no_ reason to believe the ROM re-masks this interrupt, so, let's
     // do it ourselves.
     cortex_m::peripheral::NVIC::mask(lpc55_pac::Interrupt::HASHCRYPT);
@@ -351,7 +349,6 @@ pub struct NxpImageHeader {
 #[repr(C)]
 pub struct CfpaPage {
     // Fields defined by NXP:
-
     pub header: u32,
     pub monotonic_version: u32,
     _fields_we_do_not_use: [u32; 10],
@@ -361,7 +358,6 @@ pub struct CfpaPage {
     // We are now at offset 0x100.
 
     // Fields defined by us:
-
     /// Flags controlling persistent boot behavior. Currently only bit 0 is
     /// meaningful.
     ///
@@ -386,10 +382,7 @@ static_assertions::const_assert_eq!(size_of::<CfpaPage>(), 512);
 /// Words are 128 bits, or 16 bytes, or 4 u32 words in size, and are numbered
 /// starting from the base of flash.
 #[inline(never)]
-pub fn is_programmed(
-    flash: &lpc55_pac::FLASH,
-    word_number: u32,
-) -> bool {
+pub fn is_programmed(flash: &lpc55_pac::FLASH, word_number: u32) -> bool {
     // Note: this implementation drives the flash controller directly rather
     // than setting up and calling the ROM Flash API. It turns out to be
     // substantially smaller to do it ourselves!
@@ -403,9 +396,13 @@ pub fn is_programmed(
     // in the PAC.
     flash.int_clr_status.write(|w| unsafe { w.bits(0xF) });
     // Safety: same
-    flash.starta.write(|w| unsafe { w.starta().bits(word_number) });
+    flash
+        .starta
+        .write(|w| unsafe { w.starta().bits(word_number) });
     // Safety: same
-    flash.stopa.write(|w| unsafe { w.stopa().bits(word_number) });
+    flash
+        .stopa
+        .write(|w| unsafe { w.stopa().bits(word_number) });
     // Safety: same
     flash.cmd.write(|w| unsafe { w.cmd().bits(5) });
 
@@ -437,12 +434,10 @@ extern "C" {
 // There are two magic constants that, if deposited in a particular location in
 // memory, will affect our boot image selection. They are the SHA256 hashes of
 // two English sentences, because why not. See RFD374.
-pub const PREFER_SLOT_A: [u8; 32] = hex!(
-    "edb23f2e9b399c3d57695262f29615910ed10c8d9b261bfc2076b8c16c84f66d"
-);
-pub const PREFER_SLOT_B: [u8; 32] = hex!(
-    "70ed2914e6fdeeebbb02763b96da9faa0160b7fc887425f4d45547071d0ce4ba"
-);
+pub const PREFER_SLOT_A: [u8; 32] =
+    hex!("edb23f2e9b399c3d57695262f29615910ed10c8d9b261bfc2076b8c16c84f66d");
+pub const PREFER_SLOT_B: [u8; 32] =
+    hex!("70ed2914e6fdeeebbb02763b96da9faa0160b7fc887425f4d45547071d0ce4ba");
 
 /// Inspects the contents of `buffer` to see if it contains one of the special
 /// byte sequences for overriding boot preference.
