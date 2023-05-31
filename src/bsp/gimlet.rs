@@ -5,7 +5,6 @@
 /// BSP for Gimlet (revs B, C, D, ...)
 ///
 /// This is the simplest BSP since it has no useful affordances like LEDs.
-
 use super::Bsp;
 
 pub struct Board;
@@ -21,4 +20,3 @@ impl Bsp for Board {
         gpio.dirset[0].write(|w| unsafe { w.bits(1 << 17) });
     }
 }
-

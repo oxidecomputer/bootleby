@@ -6,8 +6,11 @@ fn main() {
         if name.starts_with("CARGO_FEATURE_TARGET_BOARD_") {
             let suffix = name[prefix.len()..].to_string();
             if let Some(previous) = &target_board {
-                panic!("multiple target board features defined (at least {} and {})",
-                    show_feature(previous), show_feature(&suffix));
+                panic!(
+                    "multiple target board features defined (at least {} and {})",
+                    show_feature(previous),
+                    show_feature(&suffix)
+                );
             }
 
             target_board = Some(suffix);
@@ -21,9 +24,6 @@ fn main() {
 
 fn show_feature(envvar: &str) -> String {
     let mut name = "target-board-".to_string();
-    name.push_str(
-        &envvar.to_ascii_lowercase()
-            .replace('_', "-")
-    );
+    name.push_str(&envvar.to_ascii_lowercase().replace('_', "-"));
     name
 }

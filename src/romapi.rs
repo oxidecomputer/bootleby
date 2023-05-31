@@ -47,10 +47,8 @@ struct FlashDriverInterface {
 
 #[repr(C)]
 pub struct SKBootFns {
-    pub skboot_authenticate: unsafe extern "C" fn(
-        start_addr: *const u32,
-        is_verified: *mut u32,
-    ) -> u32,
+    pub skboot_authenticate:
+        unsafe extern "C" fn(start_addr: *const u32, is_verified: *mut u32) -> u32,
     pub skboot_hashcrypt_irq_handler: unsafe extern "C" fn() -> (),
 }
 
@@ -90,7 +88,5 @@ pub fn bootloader_tree() -> &'static BootloaderTree {
     // backs[*] so this is safe.
     //
     // [*] ignore the part where NXP included a ROM patcher
-    unsafe {
-        &BOOTLOADER_TREE
-    }
+    unsafe { &BOOTLOADER_TREE }
 }

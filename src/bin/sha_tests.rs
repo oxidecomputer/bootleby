@@ -26,8 +26,8 @@
 use bootleby::sha256;
 
 use cortex_m_rt::{entry, exception, ExceptionFrame};
-use zerocopy::AsBytes;
 use hex_literal::hex;
+use zerocopy::AsBytes;
 
 #[entry]
 fn main() -> ! {
@@ -54,8 +54,14 @@ fn main() -> ! {
 
 fn do_sha256_tests(p: &lpc55_pac::Peripherals) {
     static FIXTURES: &[(&[u8], &[u8])] = &[
-        (b"", &hex!("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")),
-        (b"abcd", &hex!("88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589")),
+        (
+            b"",
+            &hex!("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+        ),
+        (
+            b"abcd",
+            &hex!("88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589"),
+        ),
         (
             b"the quick brown fox jumps over the lazy dog.",
             &hex!("18e8d559417db8a93707c11b11bb90b56638049a5994006ed4b2705e4d86587f"),
@@ -114,7 +120,6 @@ fn hmac_test(p: &lpc55_pac::Peripherals, key: &[u8], input: &[u8], expected: &[u
     let result = result.as_bytes();
     assert_eq!(result, expected);
 }
-
 
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo) -> ! {
