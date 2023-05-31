@@ -19,10 +19,10 @@ use bootleby::{bsp::Bsp, romapi, sha256, NxpImageHeader, SlotId};
 cfg_if::cfg_if! {
     if #[cfg(feature = "target-board-lpc55xpresso")] {
         use bootleby::bsp::lpc55xpresso::Board;
+    } else if #[cfg(feature = "target-board-oxide-rot-1")] {
+        use bootleby::bsp::oxide_rot_1::Board;
     } else if #[cfg(feature = "target-board-rot-carrier")] {
         use bootleby::bsp::rot_carrier::Board;
-    } else if #[cfg(feature = "target-board-gimlet")] {
-        use bootleby::bsp::gimlet::Board;
     }
 }
 

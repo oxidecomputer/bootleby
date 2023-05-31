@@ -18,8 +18,8 @@ jobs:
       matrix:
         board:
           - lpc55xpresso
+          - oxide-rot-1
           - rot-carrier
-          - gimlet
 
     steps:
     - uses: actions/checkout@v3

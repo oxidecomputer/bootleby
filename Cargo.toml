@@ -8,8 +8,8 @@ edition = "2021"
 default = ["target-board-rot-carrier"]
 
 target-board-lpc55xpresso = []
+target-board-oxide-rot-1 = []
 target-board-rot-carrier = []
-target-board-gimlet = []
 
 allow-unsigned-images = []
 
