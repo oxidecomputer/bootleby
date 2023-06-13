@@ -26,9 +26,17 @@ pub struct Board;
 
 impl Bsp for Board {
     fn configure(iocon: &lpc55_pac::IOCON, _gpio: &lpc55_pac::GPIO) {
-        // Make our override buttons digital inputs.
-        iocon.pio0_2.modify(|_, w| w.digimode().set_bit());
-        iocon.pio0_6.modify(|_, w| w.digimode().set_bit());
+        // Make our override buttons digital inputs with pulldowns.
+        iocon.pio0_2.modify(|_, w| {
+            w.digimode().set_bit();
+            w.mode().pull_down();
+            w
+        });
+        iocon.pio0_6.modify(|_, w| {
+            w.digimode().set_bit();
+            w.mode().pull_down();
+            w
+        });
     }
 
     fn indicate_fault(gpio: &lpc55_pac::gpio::RegisterBlock) {
