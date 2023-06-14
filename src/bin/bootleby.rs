@@ -180,11 +180,17 @@ fn check_for_override(
 
     // Update the shared buffer with information about what we've found.
     // The bytes that currently have meaning are:
+    //
+    // Log v0:
     // [0] = 1 if slot A validated, 0 otherwise
     // [1] = 1 if slot B validated, 0 otherwise
     // [2] = 0 if slot A chosen persistently, 1 if slot B
     // [3] = 0 if slot A chosen by override, 1 if slot B, FF if no override
     // [4] = 0 if slot A chosen by BSP, 1 if slot B, FF if no choice
+    // [31] = log version
+    //
+    // Log v1 (extends v0):
+    // [5] = 0 if slot A chosen by beacon, 1 if slot B, FF if no or invalid beacon
     fn byteify(choice: Option<SlotId>) -> u8 {
         choice.map(|slot| slot as u8).unwrap_or(0xFF)
     }
@@ -194,6 +200,8 @@ fn check_for_override(
     shared_buffer[2] = byteify(Some(persistent_choice));
     shared_buffer[3] = byteify(transient_choice);
     shared_buffer[4] = byteify(hw_choice);
+    shared_buffer[5] = byteify(beacon_choice);
+    shared_buffer[31] = 1u8; // log version
 
     // Prioritize among our possible choices as follows (Option::or
     // short-circuits):
