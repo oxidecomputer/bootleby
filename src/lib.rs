@@ -181,7 +181,7 @@ pub fn verify_image(
     // so `image_length` is significantly smaller than `u32::MAX`. So, we
     // override the overflow check.
     let image_length_fwords =
-        header.image_length.wrapping_add(BYTES_PER_FWORD_U32 + 1) / BYTES_PER_FWORD_U32;
+        header.image_length.wrapping_add(BYTES_PER_FWORD_U32 - 1) / BYTES_PER_FWORD_U32;
 
     // Verify that every. single. page. of the image is readable, because the
     // ROM doesn't do this despite NXP suggesting it in their app notes.
