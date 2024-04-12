@@ -10,7 +10,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Cache cargo registry
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       continue-on-error: false
       with:
         path: |
@@ -20,13 +20,13 @@ jobs:
         restore-keys: |
           ${{ runner.os}}-cargo-
     - name: Cache build artifacts
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       continue-on-error: true
       with:
         path: target
         key: ${{ runner.os }}-cargo-target-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
     - name: Cache downloaded toolchain(s)
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       continue-on-error: true
       with:
         path: ~/.rustup
