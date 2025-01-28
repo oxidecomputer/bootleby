@@ -112,7 +112,10 @@ fn check_for_override(
 
         // Safety: the exclusivity check above is more than enough to make
         // obtaining a reference to this variable _once_ safe:
-        unsafe { &mut TRANSIENT_OVERRIDE }
+        #[allow(static_mut_refs)]
+        unsafe {
+            &mut TRANSIENT_OVERRIDE
+        }
     };
     let transient_choice = bootleby::check_transient_override(shared_buffer);
 
