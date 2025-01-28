@@ -53,5 +53,6 @@ bench = false
 
 [workspace]
 members = [
+    "xtask",
     "tinycrc",
 ]
