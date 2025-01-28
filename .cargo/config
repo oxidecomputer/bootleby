@@ -6,3 +6,9 @@ rustflags = [
     "-C", "link-arg=-Tlink.x",
     "-C", "overflow-checks=y",
 ]
+
+# We need to specify the target manually here because by default we
+# build for our arm target. We can add more aliases for other platforms
+# as needed.
+[alias]
+xtask = "run --target x86_64-unknown-linux-gnu --package xtask --"
