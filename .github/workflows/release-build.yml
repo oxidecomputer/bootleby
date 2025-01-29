@@ -22,7 +22,7 @@ jobs:
           - rot-carrier
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install Rust toolchain
       run: rustup show
@@ -58,7 +58,7 @@ jobs:
         echo "build_name=${BUILD_NAME}" >> "${GITHUB_OUTPUT}"
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ steps.package.outputs.build_name }}
         path: |

@@ -51,7 +51,7 @@ eval board you probably don't have).
 To change boards, check `Cargo.toml` for the various `target-board-*` features,
 and pass one like this:
 
-`cargo build --release --no-default-features --features target-board-lpcxpresso`
+`cargo build --release --no-default-features --features target-board-lpc55xpresso`
 
 To enable booting unsigned-but-CRC'd images, add the `allow-unsigned-images`
 feature.
@@ -110,7 +110,7 @@ cargo run --bin lpc55_flash /dev/ttyUSB0 ping
 In _this_ repo, run
 
 ```
-cargo build --release --no-default-features --features target-board-lpcxpresso
+cargo build --release --no-default-features --features target-board-lpc55xpresso
 arm-none-eabi-objcopy -O binary target/thumbv8m.main-none-eabihf/release/bootleby bootleby.bin
 ```
 
