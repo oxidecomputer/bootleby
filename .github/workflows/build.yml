@@ -33,3 +33,5 @@ jobs:
         key: ${{ runner.os }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
     - name: Build
       run: cargo build
+    - name: Package
+      run: cargo xtask package --out file.zip --board lpc55xpresso
