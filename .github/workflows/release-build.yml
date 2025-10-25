@@ -71,7 +71,7 @@ jobs:
         subject-path: ${{ steps.build.outputs.package_name }}.zip
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: ${{ steps.package.outputs.build_name }}
         path: |
