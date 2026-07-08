@@ -68,7 +68,7 @@ SECTIONS {
     } >IMAGE_A
     .image_b ORIGIN(IMAGE_B) (NOLOAD): {
         IMAGE_B = .;
-        . += LENGTH(IMAGE_A);
+        . += LENGTH(IMAGE_B);
     } >IMAGE_B
     .override ORIGIN(OVERRIDE) (NOLOAD): {
         TRANSIENT_OVERRIDE = .;
