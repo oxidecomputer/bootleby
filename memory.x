@@ -1,6 +1,10 @@
 MEMORY {
-    FLASH (rx): ORIGIN = 0x10000000, LENGTH = 24K
-    DATAFLASH (rw): ORIGIN = 0x10000000 + 24K, LENGTH = 8K
+    /*
+     * This length should be coordinated with Hubris!  During bootleby updates,
+     * Hubris writes the new bootleby image to flash offset 0x2000, so bootleby
+     * should not exceed that length (otherwise its tail will be overwritten).
+     */
+    FLASH (rx): ORIGIN = 0x10000000, LENGTH = 8K
 
     /*
      * Note: RAM is offset by 0x4000 because the Boot ROM uses that area
